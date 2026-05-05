@@ -25,7 +25,7 @@ Local-only. No auth, no cloud, just localhost + WebSocket.
     hooks/emit_state.py            (one JSON file per session)
             │
             ▼
-  ~/.claude/orchestrator/sessions/<session-id>.json
+  ~/.watchfire/sessions/<session-id>.json
             │
             ▼ chokidar
        Node WS server

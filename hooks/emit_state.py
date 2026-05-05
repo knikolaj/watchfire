@@ -24,7 +24,7 @@ import sys
 import time
 from pathlib import Path
 
-STATE_DIR = Path.home() / ".claude" / "orchestrator" / "sessions"
+STATE_DIR = Path.home() / ".watchfire" / "sessions"
 
 EVENT_TO_STATUS = {
     "SessionStart":      "idle",
@@ -246,7 +246,7 @@ def main() -> int:
     # Debug log — skip high-frequency events to keep the log readable.
     if payload.get("hook_event_name") not in LIGHT_EVENTS:
         try:
-            log = Path.home() / ".claude" / "orchestrator" / "hook.log"
+            log = Path.home() / ".watchfire" / "hook.log"
             log.parent.mkdir(parents=True, exist_ok=True)
             with log.open("a") as f:
                 f.write(f"[{time.strftime('%H:%M:%S')}] agent={args.agent} bytes={len(raw)} keys={sorted(payload.keys())}\n")

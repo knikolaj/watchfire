@@ -214,16 +214,24 @@ function showTip(s, e) {
   const head = nameOrPrompt(s);
   const sub = s.model ? `<div class="sub">${escape(s.model)}</div>` : "";
   const prompt = s.last_prompt ? `<div class="lbl">last prompt:</div><div class="prompt">${escape(s.last_prompt).slice(0, 400)}</div>` : "";
-  tooltipEl.innerHTML = `<div class="head">${escape(head)}</div>${sub}${prompt}<div class="cwd">${escape(s.cwd || "")}</div>`;
+  const target = e.currentTarget;
+  // Hide while we swap content + measure — getBoundingClientRect right
+  // after innerHTML can otherwise return the *previous* content's height
+  // because Edge batches layout. visibility:hidden keeps the element in
+  // flow so layout is computable, and `void offsetHeight` forces an
+  // immediate sync layout flush before we read dimensions.
+  tooltipEl.style.visibility = "hidden";
   tooltipEl.style.display = "block";
-  positionTipAtRow(e.currentTarget);
+  tooltipEl.innerHTML = `<div class="head">${escape(head)}</div>${sub}${prompt}<div class="cwd">${escape(s.cwd || "")}</div>`;
+  void tooltipEl.offsetHeight;
+  positionTipAtRow(target);
+  tooltipEl.style.visibility = "visible";
 }
 
 function positionTipAtRow(rowEl) {
-  // Position the tooltip so it never covers the row that triggered it.
-  // 10px gap above (preferred) or below the row; horizontally centered on
-  // the row, clamped to the viewport. Uses getBoundingClientRect — works
-  // correctly under the body's `zoom: 1.15` (offsetWidth would not).
+  // Default to placing the tooltip above the row with a 5px gap. If above
+  // would clip the top of the viewport, place below. Centered horizontally
+  // on the row, clamped to viewport margins.
   const GAP = 5;
   const MARGIN = 8;
   const ww = window.innerWidth, wh = window.innerHeight;
@@ -235,10 +243,8 @@ function positionTipAtRow(rowEl) {
   if (x + w > ww - MARGIN) x = ww - MARGIN - w;
   if (x < MARGIN)          x = MARGIN;
 
-  // Prefer placing above the row.
   let y = row.top - h - GAP;
   if (y < MARGIN) {
-    // Not enough room above → place below the row.
     y = row.bottom + GAP;
     if (y + h > wh - MARGIN) y = Math.max(MARGIN, wh - MARGIN - h);
   }

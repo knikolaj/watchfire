@@ -17,7 +17,7 @@ import { WebSocketServer } from "ws";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WEB_DIR = path.resolve(__dirname, "..", "web");
-const STATE_DIR = path.join(os.homedir(), ".claude", "orchestrator", "sessions");
+const STATE_DIR = path.join(os.homedir(), ".watchfire", "sessions");
 const PORT = Number(process.env.PORT) || 4173;
 
 const MIME = {
@@ -84,7 +84,13 @@ async function handleRequest(req, res) {
   }
   try {
     const data = await fs.readFile(filePath);
-    res.writeHead(200, { "content-type": MIME[path.extname(filePath)] || "application/octet-stream" });
+    res.writeHead(200, {
+      "content-type": MIME[path.extname(filePath)] || "application/octet-stream",
+      // Edge --app windows cache aggressively; forbid caching outright so
+      // every reload picks up fresh JS/CSS.
+      "cache-control": "no-store, no-cache, must-revalidate",
+      "pragma": "no-cache",
+    });
     res.end(data);
   } catch {
     res.writeHead(404); res.end("not found");
