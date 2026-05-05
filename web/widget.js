@@ -10,6 +10,10 @@ import { connectWS } from "./ws.js";
 
 const sessions = new Map();   // session_id -> session
 const collapsed = new Set();  // cwd keys the user has collapsed
+const chatsCounts  = new Map();  // cwd -> total chats on disk
+const chatsCache   = new Map();  // cwd -> chat list (cached /chats response)
+const chatsFetches = new Set();  // cwds with an in-flight /chats request
+let pinnedCwd = null;            // cwd whose chats popup is currently pinned open
 
 const scrollEl = document.getElementById("scroll");
 const tooltipEl = document.getElementById("tooltip");
@@ -113,11 +117,19 @@ function render() {
   renderMiniBar();
 
   // Wire interactivity
-  for (const head of scrollEl.querySelectorAll(".group-header")) {
-    head.addEventListener("click", () => {
-      const k = head.dataset.cwd;
+  // Folder name area collapses; the [N] badge opens the all-chats popup.
+  for (const t of scrollEl.querySelectorAll(".group-header .g-toggle")) {
+    t.addEventListener("click", () => {
+      const k = t.parentElement.dataset.cwd;
       collapsed.has(k) ? collapsed.delete(k) : collapsed.add(k);
       render();
+    });
+  }
+  for (const c of scrollEl.querySelectorAll(".group-header .g-count")) {
+    c.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const cwd = c.dataset.cwd;
+      togglePinnedChats(cwd, c);
     });
   }
   for (const row of scrollEl.querySelectorAll(".row")) {
@@ -127,20 +139,128 @@ function render() {
     // it never covers the row you're hovering. mousemove is intentionally
     // not wired — we don't want it to track the cursor.
     row.addEventListener("mouseenter", (e) => showTip(sessions.get(id), e));
-    row.addEventListener("mouseleave", () => { tooltipEl.style.display = "none"; });
+    row.addEventListener("mouseleave", () => {
+      // Don't dismiss a pinned chats popup just because we left a row.
+      if (!pinnedCwd) tooltipEl.style.display = "none";
+    });
   }
+
+  // After mounting, kick off chat-count fetches for any cwd we don't know
+  // yet — render() reruns when the response comes back so [N] updates.
+  for (const [cwd] of groupList) ensureChatsCount(cwd);
 }
 
 function renderGroup(cwd, list, now) {
   const isCollapsed = collapsed.has(cwd);
   const arrow = isCollapsed ? "▸" : "▾";
+  // [N] = all chats this cwd has ever hosted. Falls back to the active
+  // count until the /chats response arrives, then re-renders with truth.
+  const count = chatsCounts.has(cwd) ? chatsCounts.get(cwd) : list.length;
+  const openCls = pinnedCwd === cwd ? " open" : "";
   const rows = isCollapsed ? "" : list.map(s => renderRow(s, now)).join("");
   return `
     <div class="group">
-      <div class="group-header" data-cwd="${escapeAttr(cwd)}">${arrow} ${escape(shortPath(cwd))}</div>
+      <div class="group-header" data-cwd="${escapeAttr(cwd)}">
+        <span class="g-toggle">${arrow} ${escape(shortPath(cwd))}</span>
+        <span class="g-count${openCls}" data-cwd="${escapeAttr(cwd)}">[${count}]</span>
+      </div>
       ${rows}
     </div>`;
 }
+
+// --- All-chats popup -------------------------------------------------------
+// Lists every transcript that's ever lived in this cwd (active sessions
+// from the live state, plus archived ones the server scanned out of
+// ~/.claude/projects/<flattened>/*.jsonl). Pinned: stays open until the
+// user clicks the badge again or anywhere outside the popup.
+
+function ensureChatsCount(cwd) {
+  if (chatsCounts.has(cwd) || chatsFetches.has(cwd)) return;
+  chatsFetches.add(cwd);
+  fetch(`/chats?cwd=${encodeURIComponent(cwd)}`)
+    .then(r => r.ok ? r.json() : [])
+    .then(list => {
+      chatsCounts.set(cwd, list.length);
+      chatsCache.set(cwd, list);
+    })
+    .catch(() => {})
+    .finally(() => {
+      chatsFetches.delete(cwd);
+      render();
+    });
+}
+
+function togglePinnedChats(cwd, anchorEl) {
+  if (pinnedCwd === cwd) {
+    pinnedCwd = null;
+    tooltipEl.style.display = "none";
+    render();
+    return;
+  }
+  pinnedCwd = cwd;
+  // Force a fresh fetch so newly-archived chats show up.
+  chatsCounts.delete(cwd);
+  chatsCache.delete(cwd);
+  ensureChatsCount(cwd);
+  showAllChatsPopup(cwd, anchorEl);
+}
+
+function showAllChatsPopup(cwd, anchorEl) {
+  const palette = { working: "#ffd166", waiting_input: "#ef476f", done: "#06d6a0", idle: "#6c7a89" };
+  const active = new Map();
+  for (const s of sessions.values()) {
+    if ((s.cwd || "(unknown)") === cwd) active.set(s.session_id, s);
+  }
+  const archived = (chatsCache.get(cwd) || []).filter(c => !active.has(c.session_id));
+
+  const head = `<div class="head">${escape(shortPath(cwd))}</div>`;
+  const sub  = `<div class="cwd">${escape(cwd)}</div>`;
+
+  let body;
+  if (active.size === 0 && archived.length === 0) {
+    body = `<div class="msg">No chats yet.</div>`;
+  } else {
+    const activeRows = [...active.values()]
+      .sort((a, b) => (b.last_event_at || 0) - (a.last_event_at || 0))
+      .map(s => {
+        const status = s.status || "idle";
+        const dot = palette[status] || palette.idle;
+        const name = escape(s.name || (s.first_prompt || "").trim() || (s.session_id || "").slice(0, 8));
+        return `<div class="chat-row">
+          <span class="dot" style="background:${dot}"></span>
+          <span class="name">${name}</span>
+          <span class="state">${status}</span>
+        </div>`;
+      }).join("");
+    const archivedRows = archived.map(c => {
+      const name = escape(c.name || (c.first_prompt || "").trim() || (c.session_id || "").slice(0, 8));
+      return `<div class="chat-row archived">
+        <span class="dot" style="background:#3a4250"></span>
+        <span class="name">${name}</span>
+        <span class="state">archived</span>
+      </div>`;
+    }).join("");
+    body = activeRows + archivedRows;
+  }
+
+  tooltipEl.style.visibility = "hidden";
+  tooltipEl.style.display = "block";
+  tooltipEl.innerHTML = head + sub + body;
+  void tooltipEl.offsetHeight;
+  positionTipAtRow(anchorEl);
+  tooltipEl.style.visibility = "visible";
+}
+
+// Close pinned popup on click outside the popup (and outside any [N] badge,
+// which has its own toggle handler).
+document.addEventListener("click", (e) => {
+  if (!pinnedCwd) return;
+  if (tooltipEl.contains(e.target)) return;
+  if (e.target.classList && e.target.classList.contains("g-count")) return;
+  pinnedCwd = null;
+  tooltipEl.style.display = "none";
+  render();
+});
 
 function renderRow(s, now) {
   const isClaude = s.agent !== "codex";
@@ -210,6 +330,8 @@ try { if (localStorage.getItem(MINI_KEY) === "1") setMini(true); } catch {}
 
 function showTip(s, e) {
   if (!s) return;
+  // Don't replace a pinned chats popup with a row hover preview.
+  if (pinnedCwd) return;
   // Sub-line shows only the model (everything else duplicates the row).
   const head = nameOrPrompt(s);
   const sub = s.model ? `<div class="sub">${escape(s.model)}</div>` : "";
@@ -282,14 +404,34 @@ function escapeAttr(s) { return escape(s); }
 // JS (i.e., the --app launch). Initial sizing is handled in start_widget.ps1
 // using the session count passed by `orch widget`.
 
+// Invalidate cached chat counts for a cwd whenever its session list shifts
+// (a new chat → archive count goes up; an unlink → goes down). Forces a
+// fresh /chats fetch on the next render.
+function invalidateChats(cwd) {
+  if (!cwd) return;
+  chatsCounts.delete(cwd);
+  chatsCache.delete(cwd);
+}
+
 connectWS({
   onSnapshot: (list) => {
     sessions.clear();
+    chatsCounts.clear();
+    chatsCache.clear();
     for (const s of list) sessions.set(s.session_id, s);
     render();
   },
-  onUpsert: (s) => { sessions.set(s.session_id, s); render(); },
-  onRemove: (id) => { sessions.delete(id); render(); },
+  onUpsert: (s) => {
+    sessions.set(s.session_id, s);
+    invalidateChats(s.cwd || "(unknown)");
+    render();
+  },
+  onRemove: (id) => {
+    const old = sessions.get(id);
+    sessions.delete(id);
+    if (old) invalidateChats(old.cwd || "(unknown)");
+    render();
+  },
 });
 
 // Re-render every 5s so the "running · 0:08" elapsed timer ticks visibly.
