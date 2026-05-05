@@ -187,6 +187,13 @@ function ensureChatsCount(cwd) {
     .finally(() => {
       chatsFetches.delete(cwd);
       render();
+      // Re-paint the popup if it's pinned for this cwd — the archived
+      // section was empty until /chats came back.
+      if (pinnedCwd === cwd) {
+        const anchor = [...scrollEl.querySelectorAll(".g-count")]
+          .find(el => el.dataset.cwd === cwd);
+        if (anchor) showAllChatsPopup(cwd, anchor);
+      }
     });
 }
 
@@ -198,11 +205,12 @@ function togglePinnedChats(cwd, anchorEl) {
     return;
   }
   pinnedCwd = cwd;
-  // Force a fresh fetch so newly-archived chats show up.
+  // Show synchronously with whatever's cached; the .finally above will
+  // re-paint when the (possibly stale) cache is replaced by a fresh fetch.
+  showAllChatsPopup(cwd, anchorEl);
   chatsCounts.delete(cwd);
   chatsCache.delete(cwd);
   ensureChatsCount(cwd);
-  showAllChatsPopup(cwd, anchorEl);
 }
 
 function showAllChatsPopup(cwd, anchorEl) {

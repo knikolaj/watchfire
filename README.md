@@ -61,18 +61,18 @@ cd server && npm install
 
 # 3. Add the codex hook (~/.codex/config.toml — agent=codex variant)
 
-# 4. Drop ./bin/orch onto your PATH (or symlink it).
+# 4. Drop ./bin/wf onto your PATH (or symlink it).
 ```
 
 ## Usage
 
 ```
-orch widget    # launch the always-on-top widget (default)
-orch map       # open the iso map in the default browser
-orch server    # start the Node server (orch widget does this implicitly)
-orch stop      # stop the server
-orch status    # is anything listening on :4173?
-orch logs      # tail server stdout
+wf widget    # launch the always-on-top widget (default)
+wf map       # open the iso map in the default browser
+wf server    # start the Node server (wf widget does this implicitly)
+wf stop      # stop the server
+wf status    # is anything listening on :4173?
+wf logs      # tail server stdout
 ```
 
 Click a row in the widget → the corresponding Windows Terminal tab gets
