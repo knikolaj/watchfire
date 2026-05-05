@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Watchfire</title>
+  <link rel="icon" type="image/png" href="space-invader.png">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #1a2332;
+      --bg-row: #22303f;
+      --bg-row-hover: #2a3a4d;
+      --bg-title: #15202c;
+      --text: #e8e8e8;
+      --text-dim: #7a8a9a;
+      --text-muted: #5a6a7a;
+      --border: #2c3a4d;
+
+      --status-working:  #ffd166;
+      --status-waiting:  #ef476f;
+      --status-done:     #06d6a0;
+      --status-idle:     #6c7a89;
+
+      --agent-claude: #a64633;
+      --agent-codex:  #3a7a8a;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      font-size: 11px;
+      overflow: hidden;
+    }
+    body {
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      /* Default content zoom — bumps everything (rows, badges, tooltip) ~15%. */
+      zoom: 1.15;
+    }
+
+    .scroll {
+      /* `scroll` (not `auto`) so the track is always reserved + visible —
+         users complained the thin webkit thumb was easy to miss when content
+         only barely overflowed. */
+      overflow-y: scroll;
+      flex: 1;
+      padding: 6px 0 8px;
+    }
+    body.mini .scroll { display: none; }
+
+    /* Toggle (collapse / expand) — pinned top-right. */
+    .toggle {
+      position: fixed;
+      top: 4px;
+      right: 6px;
+      z-index: 50;
+      width: 18px; height: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      color: var(--text-dim);
+      font-size: 11px;
+      user-select: none;
+      border-radius: 3px;
+    }
+    .toggle:hover { background: var(--bg-row-hover); color: var(--text); }
+
+    /* Mini bar — 4 stats laid out as flex-wrap; widths cause natural 2+2 wrap. */
+    .mini-bar {
+      display: none;
+      flex-wrap: wrap;
+      align-content: center;  /* vertical centering of the wrapped lines */
+      gap: 4px 12px;
+      padding: 8px 30px 8px 10px;  /* right padding leaves space for toggle */
+      font-size: 11px;
+      color: var(--text);
+      line-height: 1.2;
+      white-space: nowrap;
+      overflow: hidden;
+      min-height: 56px;  /* enough to fit two rows comfortably */
+      box-sizing: border-box;
+    }
+    body.mini .mini-bar { display: flex; flex: 1; }
+    body.mini html, body.mini { overflow: hidden; }
+    .mini-bar .stat { display: inline-flex; align-items: center; gap: 5px; }
+    /* Same dot size as expanded view, no pulse — saves attention. */
+    .mini-bar .stat .dot { width: 8px; height: 8px; animation: none !important; }
+    .mini-bar .n { color: var(--text); font-weight: 600; }
+    .mini-bar .stat.zero { color: var(--text-muted); }
+    .mini-bar .stat.zero .n { color: var(--text-muted); font-weight: normal; }
+    .scroll::-webkit-scrollbar { width: 8px; }
+    .scroll::-webkit-scrollbar-track { background: transparent; }
+    .scroll::-webkit-scrollbar-thumb {
+      background: #4a5a70;          /* brighter than bg so it's visible */
+      border-radius: 4px;
+      border: 1px solid #2c3a4d;
+    }
+    .scroll::-webkit-scrollbar-thumb:hover { background: #5a6a82; }
+
+    .group { padding: 6px 10px 0; }
+    .group-header {
+      color: var(--text-dim);
+      font-size: 10px;
+      padding: 2px 0 4px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 22px 14px 1fr auto;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 6px;
+      margin-bottom: 4px;
+      background: var(--bg-row);
+      border-radius: 4px;
+      border: 1px solid transparent;
+      cursor: pointer;
+    }
+    .row:hover { background: var(--bg-row-hover); }
+    .row.waiting { border-color: rgba(239,71,111,0.7); }
+
+    .badge {
+      width: 18px; height: 18px;
+      border-radius: 3px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .badge.claude { background: var(--agent-claude); }
+    .badge.codex  { background: var(--agent-codex); }
+
+    .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--status-idle);
+    }
+    .dot.working       { background: var(--status-working); }
+    .dot.waiting_input { background: var(--status-waiting); animation: pulse 1.4s ease-in-out infinite; }
+    .dot.done          { background: var(--status-done); }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%      { opacity: 0.35; }
+    }
+
+    .body { min-width: 0; line-height: 1.2; }
+    .body .name {
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .body .meta {
+      font-size: 9px;
+      color: var(--text-muted);
+    }
+    .body .meta .working       { color: var(--status-working); }
+    .body .meta .waiting_input { color: var(--status-waiting); }
+    .body .meta .done          { color: var(--status-done); }
+    .body .meta .idle          { color: var(--status-idle); }
+
+    .ctx { text-align: right; line-height: 1.2; min-width: 36px; }
+    .ctx .pct { font-size: 10px; color: var(--text); }
+    .ctx .pct.warn   { color: #f39c12; font-weight: bold; }
+    .ctx .pct.danger { color: var(--status-waiting); font-weight: bold; }
+    .ctx .lim { font-size: 9px; color: var(--text-muted); }
+
+    /* Tooltip */
+    #tooltip {
+      position: fixed;
+      pointer-events: none;
+      background: #0c141c;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      /* Stable width — viewport-relative caused horizontal shrinkage as cursor
+         moved (text re-wraps when max-width changes). */
+      width: 240px;
+      box-sizing: border-box;
+      max-height: 45vh;
+      overflow: hidden;
+      font-size: 10px;
+      display: none;
+      z-index: 100;
+    }
+    #tooltip .prompt {
+      /* Hard truncate after a few lines so the tooltip can't grow tall. */
+      display: -webkit-box;
+      -webkit-line-clamp: 8;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    #tooltip .head { font-weight: bold; color: var(--text); margin-bottom: 2px; }
+    #tooltip .sub  { color: var(--text-dim); font-size: 9px; margin-bottom: 6px; }
+    #tooltip .lbl  { color: var(--text-dim); font-size: 9px; margin-top: 6px; }
+    #tooltip .prompt { color: var(--text); white-space: pre-wrap; word-wrap: break-word; }
+    #tooltip .cwd  { color: var(--text-muted); font-size: 9px; margin-top: 8px; }
+
+    .empty {
+      color: var(--text-muted);
+      text-align: center;
+      padding: 40px 20px;
+      font-size: 11px;
+    }
+  </style>
+</head>
+<body>
+  <div class="mini-bar" id="miniBar"></div>
+  <div class="scroll" id="scroll"></div>
+  <div class="toggle" id="toggle" title="Collapse to mini bar">–</div>
+  <div id="tooltip"></div>
+  <script type="module" src="./widget.js"></script>
+</body>
+</html>

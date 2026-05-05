@@ -1,0 +1,15 @@
+# Node deps
+server/node_modules/
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Local logs (in case anything writes here)
+*.log
+
+# Editor / OS junk
+.DS_Store
+*.swp
+.vscode/
+.idea/
