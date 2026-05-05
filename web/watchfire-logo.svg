@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Watchfire flame icon">
+  <defs>
+    <linearGradient id="outerFlame" x1="256" y1="16" x2="256" y2="506" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff6b1a"/>
+      <stop offset="0.56" stop-color="#ff4f12"/>
+      <stop offset="1" stop-color="#dc3516"/>
+    </linearGradient>
+    <linearGradient id="midFlame" x1="256" y1="155" x2="256" y2="505" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffc231"/>
+      <stop offset="0.62" stop-color="#ff9f18"/>
+      <stop offset="1" stop-color="#f17312"/>
+    </linearGradient>
+    <linearGradient id="innerFlame" x1="256" y1="276" x2="256" y2="506" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff08a"/>
+      <stop offset="0.7" stop-color="#ffd95d"/>
+      <stop offset="1" stop-color="#ffb736"/>
+    </linearGradient>
+  </defs>
+
+  <path
+    fill="url(#outerFlame)"
+    d="M256 5c-8 67-37 96-77 132-23 21-37 48-38 82-24-15-41-38-50-70-54 61-76 121-74 186 2 100 78 172 178 172h123c97 0 177-75 177-173 0-58-23-105-69-157-7 33-28 60-62 73 17-61-2-117-43-166C301 60 278 37 256 5Z"/>
+
+  <path
+    fill="url(#midFlame)"
+    d="M262 159c-3 52-22 79-55 111-31 31-48 70-43 111-19-12-32-29-39-51-26 36-39 73-38 109 2 43 35 68 82 68h169c54 0 94-36 94-90 0-40-17-73-51-108-5 25-20 43-45 54 11-46-7-85-34-124-14-21-28-46-40-80Z"/>
+
+  <path
+    fill="url(#innerFlame)"
+    d="M257 283c-5 34-20 53-43 75-22 21-34 48-31 78-12-8-21-19-26-35-18 25-27 49-26 72 1 21 18 34 42 34h141c32 0 55-22 55-54 0-27-12-49-36-73-4 16-15 29-31 36 7-32-6-57-24-84-9-14-16-29-21-49Z"/>
+</svg>
