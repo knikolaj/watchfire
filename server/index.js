@@ -8,14 +8,15 @@
 import http from "node:http";
 import fs from "node:fs/promises";
 import fssync from "node:fs";
-import { createReadStream } from "node:fs";
-import readline from "node:readline";
 import path from "node:path";
 import os from "node:os";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import chokidar from "chokidar";
 import { WebSocketServer } from "ws";
+
+import { listChatsForCwd } from "./chats.js";
+import { prePruneBoot, pruneOrphanedSessions } from "./prune.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WEB_DIR = path.resolve(__dirname, "..", "web");
@@ -208,200 +209,6 @@ async function resolveSessionName(session) {
   return "";
 }
 
-// --- Per-directory chat listing --------------------------------------------
-//
-// Claude Code stores each project's transcripts under
-//   ~/.claude/projects/<flattened-cwd>/<session-id>.jsonl
-// where <flattened-cwd> is the cwd path with `/` replaced by `-`. The folder
-// name preserves the original case, but our session state files have a
-// lowercased cwd (codex normalizes drive paths), so we match the directory
-// case-insensitively.
-//
-// For each transcript we extract a custom title (from `/rename`) and the
-// first user prompt — the same metadata Claude shows in its session list.
-
-const CLAUDE_PROJECTS = path.join(os.homedir(), ".claude", "projects");
-const CODEX_SESSIONS  = path.join(os.homedir(), ".codex",  "sessions");
-
-async function listChatsForCwd(cwd) {
-  if (!cwd) return [];
-  const [claude, codex] = await Promise.all([
-    listClaudeChatsForCwd(cwd),
-    listCodexChatsForCwd(cwd),
-  ]);
-  return [...claude, ...codex]
-    .sort((a, b) => b.last_modified - a.last_modified)
-    .slice(0, 50);
-}
-
-async function listClaudeChatsForCwd(cwd) {
-  const targetKey = cwd.replace(/\//g, "-").toLowerCase();
-  let entries;
-  try {
-    entries = await fs.readdir(CLAUDE_PROJECTS, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-  const dir = entries.find(e => e.isDirectory() && e.name.toLowerCase() === targetKey);
-  if (!dir) return [];
-  const projDir = path.join(CLAUDE_PROJECTS, dir.name);
-  let files;
-  try {
-    files = (await fs.readdir(projDir)).filter(f => f.endsWith(".jsonl"));
-  } catch {
-    return [];
-  }
-  const out = await Promise.all(files.map(async (f) => {
-    const fp = path.join(projDir, f);
-    let stat;
-    try { stat = await fs.stat(fp); } catch { return null; }
-    const meta = await extractClaudeTranscriptMeta(fp);
-    return {
-      session_id: f.replace(/\.jsonl$/, ""),
-      cwd,
-      agent: "claude",
-      name: meta.name || "",
-      first_prompt: meta.first_prompt || "",
-      last_modified: stat.mtimeMs,
-    };
-  }));
-  return out.filter(Boolean);
-}
-
-async function extractClaudeTranscriptMeta(filePath) {
-  let raw;
-  try { raw = await fs.readFile(filePath, "utf-8"); } catch { return {}; }
-  let custom = "";
-  let firstPrompt = "";
-  for (const line of raw.split("\n")) {
-    if (!line || line[0] !== "{") continue;
-    if (line.includes('"custom-title"')) {
-      try { const o = JSON.parse(line); if (o.customTitle) custom = o.customTitle; } catch {}
-    }
-    if (!firstPrompt && line.includes('"user"')) {
-      try {
-        const o = JSON.parse(line);
-        if (o.type === "user") {
-          const m = o.message || {};
-          if (typeof m.content === "string") firstPrompt = m.content;
-          else if (Array.isArray(m.content)) {
-            const t = m.content.find(b => b && b.type === "text");
-            if (t) firstPrompt = t.text || "";
-          }
-        }
-      } catch {}
-    }
-    if (custom && firstPrompt) break;
-  }
-  return { name: custom, first_prompt: firstPrompt.slice(0, 200) };
-}
-
-// --- Codex transcript indexing ---------------------------------------------
-// Codex stores transcripts under
-//   ~/.codex/sessions/YYYY/MM/DD/rollout-…-<session-id>.jsonl
-// with no per-cwd flattening. To answer "all chats for cwd X" we walk every
-// transcript, peek at its first ~16KB to extract cwd (from the embedded
-// `<environment_context>` user message) and the first real user prompt, then
-// group by cwd. Cached for 30s — busy users may have hundreds of transcripts
-// and we don't want to re-scan on every popup-open.
-
-const codexIndexCache = { built: 0, byCwd: new Map() };
-const CODEX_INDEX_TTL_MS = 30_000;
-
-async function buildCodexIndex() {
-  if (codexIndexCache.built && Date.now() - codexIndexCache.built < CODEX_INDEX_TTL_MS) {
-    return codexIndexCache.byCwd;
-  }
-  const byCwd = new Map();
-  async function walk(dir) {
-    let entries;
-    try { entries = await fs.readdir(dir, { withFileTypes: true }); }
-    catch { return; }
-    for (const e of entries) {
-      const p = path.join(dir, e.name);
-      if (e.isDirectory()) await walk(p);
-      else if (e.isFile() && e.name.endsWith(".jsonl")) {
-        const meta = await extractCodexTranscriptMeta(p);
-        if (!meta || !meta.cwd) continue;
-        const key = meta.cwd.toLowerCase();
-        if (!byCwd.has(key)) byCwd.set(key, []);
-        byCwd.get(key).push(meta);
-      }
-    }
-  }
-  await walk(CODEX_SESSIONS);
-  codexIndexCache.built = Date.now();
-  codexIndexCache.byCwd = byCwd;
-  return byCwd;
-}
-
-async function listCodexChatsForCwd(cwd) {
-  const idx = await buildCodexIndex();
-  return idx.get(cwd.toLowerCase()) || [];
-}
-
-async function extractCodexTranscriptMeta(filePath) {
-  // session_id from filename: rollout-…-<UUID>.jsonl. Anchor to UUID
-  // format so greedy [0-9a-f-]+ doesn't snag the timestamp prefix
-  // (e.g. "16-43-37-…").
-  const m = path.basename(filePath).match(
-    /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i
-  );
-  if (!m) return null;
-  const session_id = m[1];
-
-  let stat;
-  try { stat = await fs.stat(filePath); } catch { return null; }
-
-  // Stream line-by-line with early exit. Session_meta (first line of every
-  // transcript) carries the full Codex system prompt and easily exceeds
-  // 64KB, so a fixed-byte slice can chop it mid-string and JSON.parse
-  // fails. readline gives us complete lines regardless of length.
-  let cwd = "";
-  let firstPrompt = "";
-  const stream = createReadStream(filePath, { encoding: "utf-8" });
-  const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
-  try {
-    for await (const line of rl) {
-      if (!line || line[0] !== "{") continue;
-      if (!cwd && line.includes('"session_meta"')) {
-        try {
-          const o = JSON.parse(line);
-          if (o.type === "session_meta" && o.payload && o.payload.cwd) {
-            cwd = String(o.payload.cwd).trim();
-          }
-        } catch {}
-      }
-      // Older Codex versions only had cwd inside the env-context user msg.
-      if (!cwd && line.includes("<cwd>")) {
-        const cm = line.match(/<cwd>([^<]+)<\/cwd>/);
-        if (cm) cwd = cm[1].trim();
-      }
-      if (!firstPrompt && line.includes('"user_message"')) {
-        try {
-          const o = JSON.parse(line);
-          if (o.type === "event_msg" && o.payload && o.payload.type === "user_message") {
-            firstPrompt = (o.payload.message || "").trim();
-          }
-        } catch {}
-      }
-      if (cwd && firstPrompt) break;
-    }
-  } finally {
-    rl.close();
-    stream.destroy();
-  }
-  if (!cwd) return null;
-  return {
-    session_id,
-    cwd,
-    agent: "codex",
-    name: "",
-    first_prompt: firstPrompt.slice(0, 200),
-    last_modified: stat.mtimeMs,
-  };
-}
-
 // --- File watcher ----------------------------------------------------------
 //
 // chokidar v4 dropped glob support in `watch()` — must watch the directory
@@ -432,84 +239,18 @@ watcher
   })
   .on("error", (err) => console.error("watcher error:", err));
 
-// --- Stale-session pruning -------------------------------------------------
-//
-// State files persist across reboots, but the Claude/Codex CLI processes that
-// own them don't — every WSL process dies on shutdown without firing a Stop
-// hook. Result: after a reboot the widget keeps showing yesterday's sessions
-// forever. We use the kernel boot time as a hard cutoff: any state file
-// whose last_event_at predates the current boot is by definition orphaned,
-// because the process that wrote it can't possibly still exist.
-
-function getSystemBootTimeSec() {
-  try {
-    const stat = fssync.readFileSync("/proc/stat", "utf-8");
-    const m = stat.match(/^btime\s+(\d+)/m);
-    if (m) return Number(m[1]);
-  } catch { /* not Linux, or /proc/stat unreadable */ }
-  return 0;
-}
-
-async function prunePreBootSessions() {
-  const boot = getSystemBootTimeSec();
-  if (!boot) return;
-  fssync.mkdirSync(STATE_DIR, { recursive: true });
-  let removed = 0;
-  for (const f of (await fs.readdir(STATE_DIR)).filter(f => f.endsWith(".json"))) {
-    const fp = path.join(STATE_DIR, f);
-    try {
-      const s = JSON.parse(await fs.readFile(fp, "utf-8"));
-      if ((s.last_event_at || 0) < boot) {
-        await fs.unlink(fp);
-        removed++;
-      }
-    } catch { /* unreadable / malformed — leave it */ }
-  }
-  if (removed) console.log(`pruned ${removed} pre-boot session(s)`);
-}
-
-// Liveness check for a recorded session PID. /proc/<pid>/cmdline existing
-// means *some* process has that pid; we additionally require it to look
-// like a claude/codex CLI to defend against PID reuse (a long-dead session
-// whose pid was recycled into an unrelated bash, for example).
-function isClaudeProcessAlive(pid) {
-  if (!pid) return null;   // unknown — caller should leave the file alone
-  try {
-    const cmd = fssync.readFileSync(`/proc/${pid}/cmdline`, "utf-8");
-    return cmd.includes("claude") || cmd.includes("codex") || cmd.includes("node");
-  } catch {
-    return false;          // ENOENT → process is gone
-  }
-}
-
-// Periodic sweep — catches sessions whose terminal was closed without a
-// Stop hook firing (e.g. user closes the WT tab, kills the shell, etc).
-async function pruneOrphanedSessions() {
-  let removed = 0;
-  const files = (await fs.readdir(STATE_DIR).catch(() => []))
-    .filter(f => f.endsWith(".json"));
-  for (const f of files) {
-    const fp = path.join(STATE_DIR, f);
-    try {
-      const s = JSON.parse(await fs.readFile(fp, "utf-8"));
-      // Skip files that predate the pid-tracking change (no pid field).
-      if (!s.pid) continue;
-      if (isClaudeProcessAlive(s.pid) === false) {
-        await fs.unlink(fp);
-        removed++;
-      }
-    } catch { /* ignore */ }
-  }
-  if (removed) console.log(`pruned ${removed} orphan session(s)`);
-}
-
 // --- Start -----------------------------------------------------------------
 
-await prunePreBootSessions();
-await pruneOrphanedSessions();
+const removedBoot = await prePruneBoot(STATE_DIR);
+if (removedBoot) console.log(`pruned ${removedBoot} pre-boot session(s)`);
+const removedOrphans = await pruneOrphanedSessions(STATE_DIR);
+if (removedOrphans) console.log(`pruned ${removedOrphans} orphan session(s)`);
 // Re-check every 5 minutes so closed-but-not-rebooted sessions disappear
 // without needing a server restart.
-setInterval(() => { pruneOrphanedSessions().catch(() => {}); }, 5 * 60 * 1000);
+setInterval(async () => {
+  const r = await pruneOrphanedSessions(STATE_DIR).catch(() => 0);
+  if (r) console.log(`pruned ${r} orphan session(s)`);
+}, 5 * 60 * 1000);
 
 server.listen(PORT, () => {
   console.log(`watchfire: http://localhost:${PORT}`);
