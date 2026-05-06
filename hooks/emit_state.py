@@ -253,9 +253,14 @@ def main() -> int:
         except Exception:
             pass
 
-    session_id = payload.get("session_id") or "unknown"
+    session_id = payload.get("session_id")
     event = payload.get("hook_event_name") or "Unknown"
     cwd = payload.get("cwd") or os.getcwd()
+    # Drop hooks that arrive without a session_id — they have no identity
+    # to attach to and used to land as a single "unknown.json" orphan that
+    # got overwritten by every subsequent malformed event.
+    if not session_id:
+        return 0
 
     # Skip cron-driven non-interactive `claude -p` runs. Each such script
     # cd's into its own sandbox dir before invoking claude, so the cwd
