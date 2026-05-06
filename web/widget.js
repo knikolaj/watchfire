@@ -242,10 +242,10 @@ function showAllChatsPopup(cwd, anchorEl) {
       }).join("");
     const archivedRows = archived.map(c => {
       const name = escape(c.name || (c.first_prompt || "").trim() || (c.session_id || "").slice(0, 8));
-      return `<div class="chat-row archived">
-        <span class="dot" style="background:#3a4250"></span>
+      return `<div class="chat-row inactive">
+        <span class="dot" style="background:#5a6a7a"></span>
         <span class="name">${name}</span>
-        <span class="state">archived</span>
+        <span class="state">non active</span>
       </div>`;
     }).join("");
     body = activeRows + archivedRows;

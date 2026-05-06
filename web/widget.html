@@ -123,7 +123,9 @@
     .g-count:hover { background: var(--bg-row); color: var(--text); }
     .g-count.open { background: var(--bg-row-hover); color: var(--text); }
 
-    /* Chats popup: list of every transcript ever in this cwd. */
+    /* Chats popup: list of every transcript ever in this cwd.
+       Active and inactive rows share dot size (7px), font size (10px),
+       and layout — only the colors differ. */
     .chat-row {
       display: flex;
       gap: 6px;
@@ -136,9 +138,9 @@
       flex: 1; color: var(--text);
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
-    .chat-row .state { color: var(--text-dim); font-size: 9px; }
-    .chat-row.archived { opacity: 0.55; }
-    .chat-row.archived .name { color: var(--text-dim); }
+    .chat-row .state { color: var(--text-dim); font-size: 10px; }
+    .chat-row.inactive .name  { color: #b0bcc8; }   /* a bit dimmer than active */
+    .chat-row.inactive .state { color: #8896a4; }
 
     .row {
       display: grid;

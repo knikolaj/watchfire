@@ -491,29 +491,33 @@ class CityScene extends Phaser.Scene {
     if (active.size === 0 && archived.length === 0) {
       body = `<div class="msg">No chats yet.</div>`;
     } else {
-      // Active first, sorted by recency.
+      // Shared row geometry — identical dot size and font size between
+      // active and non-active rows. Only colors signal status/aliveness.
+      const ROW  = "display:flex;gap:6px;align-items:center;margin:3px 0;font-size:10px;";
+      const DOT  = "width:7px;height:7px;border-radius:50%;display:inline-block;flex-shrink:0;";
+      const NAME = "flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+
       const activeRows = [...active.values()]
         .sort((a, b) => (b.last_event_at || 0) - (a.last_event_at || 0))
         .map(s => {
           const status = s.status || "idle";
           const dot = palette[status] || palette.idle;
           const name = this.escape(s.name || (s.session_id || "").slice(0, 8));
-          return `<div style="display:flex;gap:6px;align-items:center;margin:3px 0;">
-            <span style="width:7px;height:7px;border-radius:50%;background:${dot};display:inline-block;flex-shrink:0;"></span>
-            <span style="flex:1;color:#ddd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${name}</span>
-            <span style="color:#7a8a9a;font-size:10px;">${status}</span>
+          return `<div style="${ROW}">
+            <span style="${DOT}background:${dot};"></span>
+            <span style="${NAME}color:#ddd;">${name}</span>
+            <span style="color:#7a8a9a;">${status}</span>
           </div>`;
         }).join("");
-      // Then archived, by mtime desc (server already sorts).
-      const archivedRows = archived.map(c => {
+      const inactiveRows = archived.map(c => {
         const name = this.escape(c.name || c.first_prompt || (c.session_id || "").slice(0, 8));
-        return `<div style="display:flex;gap:6px;align-items:center;margin:3px 0;opacity:0.6;">
-          <span style="width:7px;height:7px;border-radius:50%;background:#3a4250;display:inline-block;flex-shrink:0;"></span>
-          <span style="flex:1;color:#9aa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${name}</span>
-          <span style="color:#667;font-size:10px;">archived</span>
+        return `<div style="${ROW}">
+          <span style="${DOT}background:#5a6a7a;"></span>
+          <span style="${NAME}color:#b0bcc8;">${name}</span>
+          <span style="color:#8896a4;">non active</span>
         </div>`;
       }).join("");
-      body = activeRows + archivedRows;
+      body = activeRows + inactiveRows;
     }
     this.tooltipEl.innerHTML = head + sub + body;
     this.tooltipEl.style.display = "block";
