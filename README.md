@@ -55,14 +55,20 @@ directory and pushes changes to the browser over WebSocket.
 # 1. Install server deps
 cd server && npm install
 
-# 2. Wire the hook into Claude Code (~/.claude/settings.json)
-#    Add emit_state.py under SessionStart, UserPromptSubmit, PreToolUse,
-#    Notification, Stop. See settings.json.example.
+# 2. Wire Claude Code hooks: merge docs/install/claude-settings.example.json
+#    into ~/.claude/settings.json. Five hooks: SessionStart, UserPromptSubmit,
+#    PreToolUse, Stop, Notification.
 
-# 3. Add the codex hook (~/.codex/config.toml — agent=codex variant)
+# 3. Wire Codex hooks: copy docs/install/codex-hooks.json to ~/.codex/hooks.json
+#    (or merge if you already have one).
 
 # 4. Drop ./bin/wf onto your PATH (or symlink it).
 ```
+
+**Heads up if you ever rename or move the project dir** — both the Claude
+and the Codex hook configs hard-code the absolute path to
+`hooks/emit_state.py`. Update them in lockstep, or one agent's hooks will
+silently no-op and you'll lose those sessions from the widget.
 
 ## Usage
 

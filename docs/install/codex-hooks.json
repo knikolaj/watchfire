@@ -1,0 +1,35 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/nj/projects/personal/watchfire/hooks/emit_state.py --agent codex"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/nj/projects/personal/watchfire/hooks/emit_state.py --agent codex"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/nj/projects/personal/watchfire/hooks/emit_state.py --agent codex"
+          }
+        ]
+      }
+    ]
+  }
+}

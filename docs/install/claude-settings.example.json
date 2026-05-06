@@ -1,0 +1,9 @@
+{
+  "hooks": {
+    "SessionStart":     [ { "matcher": "", "hooks": [ { "type": "command", "command": "/home/nj/projects/personal/watchfire/hooks/emit_state.py --agent claude" } ] } ],
+    "UserPromptSubmit": [ { "matcher": "", "hooks": [ { "type": "command", "command": "/home/nj/projects/personal/watchfire/hooks/emit_state.py --agent claude" } ] } ],
+    "PreToolUse":       [ { "matcher": "", "hooks": [ { "type": "command", "command": "/home/nj/projects/personal/watchfire/hooks/emit_state.py --agent claude" } ] } ],
+    "Stop":             [ { "matcher": "", "hooks": [ { "type": "command", "command": "/home/nj/projects/personal/watchfire/hooks/emit_state.py --agent claude" } ] } ],
+    "Notification":     [ { "matcher": "", "hooks": [ { "type": "command", "command": "/home/nj/projects/personal/watchfire/hooks/emit_state.py --agent claude" } ] } ]
+  }
+}
