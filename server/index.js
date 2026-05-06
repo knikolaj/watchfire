@@ -1,5 +1,5 @@
 // Watchfire local server.
-// - Watches ~/.claude/orchestrator/sessions/*.json
+// - Watches ~/.watchfire/sessions/*.json
 // - Serves the static web/ directory
 // - Pushes session state changes to browser clients over WebSocket
 //
@@ -8,6 +8,8 @@
 import http from "node:http";
 import fs from "node:fs/promises";
 import fssync from "node:fs";
+import { createReadStream } from "node:fs";
+import readline from "node:readline";
 import path from "node:path";
 import os from "node:os";
 import { spawn } from "node:child_process";
@@ -219,9 +221,20 @@ async function resolveSessionName(session) {
 // first user prompt — the same metadata Claude shows in its session list.
 
 const CLAUDE_PROJECTS = path.join(os.homedir(), ".claude", "projects");
+const CODEX_SESSIONS  = path.join(os.homedir(), ".codex",  "sessions");
 
 async function listChatsForCwd(cwd) {
   if (!cwd) return [];
+  const [claude, codex] = await Promise.all([
+    listClaudeChatsForCwd(cwd),
+    listCodexChatsForCwd(cwd),
+  ]);
+  return [...claude, ...codex]
+    .sort((a, b) => b.last_modified - a.last_modified)
+    .slice(0, 50);
+}
+
+async function listClaudeChatsForCwd(cwd) {
   const targetKey = cwd.replace(/\//g, "-").toLowerCase();
   let entries;
   try {
@@ -238,13 +251,11 @@ async function listChatsForCwd(cwd) {
   } catch {
     return [];
   }
-  // Read mtime + metadata for each transcript. Cap the result so very busy
-  // projects don't return hundreds of entries.
   const out = await Promise.all(files.map(async (f) => {
     const fp = path.join(projDir, f);
     let stat;
     try { stat = await fs.stat(fp); } catch { return null; }
-    const meta = await extractTranscriptMeta(fp);
+    const meta = await extractClaudeTranscriptMeta(fp);
     return {
       session_id: f.replace(/\.jsonl$/, ""),
       cwd,
@@ -254,13 +265,10 @@ async function listChatsForCwd(cwd) {
       last_modified: stat.mtimeMs,
     };
   }));
-  return out
-    .filter(Boolean)
-    .sort((a, b) => b.last_modified - a.last_modified)
-    .slice(0, 50);
+  return out.filter(Boolean);
 }
 
-async function extractTranscriptMeta(filePath) {
+async function extractClaudeTranscriptMeta(filePath) {
   let raw;
   try { raw = await fs.readFile(filePath, "utf-8"); } catch { return {}; }
   let custom = "";
@@ -286,6 +294,112 @@ async function extractTranscriptMeta(filePath) {
     if (custom && firstPrompt) break;
   }
   return { name: custom, first_prompt: firstPrompt.slice(0, 200) };
+}
+
+// --- Codex transcript indexing ---------------------------------------------
+// Codex stores transcripts under
+//   ~/.codex/sessions/YYYY/MM/DD/rollout-…-<session-id>.jsonl
+// with no per-cwd flattening. To answer "all chats for cwd X" we walk every
+// transcript, peek at its first ~16KB to extract cwd (from the embedded
+// `<environment_context>` user message) and the first real user prompt, then
+// group by cwd. Cached for 30s — busy users may have hundreds of transcripts
+// and we don't want to re-scan on every popup-open.
+
+const codexIndexCache = { built: 0, byCwd: new Map() };
+const CODEX_INDEX_TTL_MS = 30_000;
+
+async function buildCodexIndex() {
+  if (codexIndexCache.built && Date.now() - codexIndexCache.built < CODEX_INDEX_TTL_MS) {
+    return codexIndexCache.byCwd;
+  }
+  const byCwd = new Map();
+  async function walk(dir) {
+    let entries;
+    try { entries = await fs.readdir(dir, { withFileTypes: true }); }
+    catch { return; }
+    for (const e of entries) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) await walk(p);
+      else if (e.isFile() && e.name.endsWith(".jsonl")) {
+        const meta = await extractCodexTranscriptMeta(p);
+        if (!meta || !meta.cwd) continue;
+        const key = meta.cwd.toLowerCase();
+        if (!byCwd.has(key)) byCwd.set(key, []);
+        byCwd.get(key).push(meta);
+      }
+    }
+  }
+  await walk(CODEX_SESSIONS);
+  codexIndexCache.built = Date.now();
+  codexIndexCache.byCwd = byCwd;
+  return byCwd;
+}
+
+async function listCodexChatsForCwd(cwd) {
+  const idx = await buildCodexIndex();
+  return idx.get(cwd.toLowerCase()) || [];
+}
+
+async function extractCodexTranscriptMeta(filePath) {
+  // session_id from filename: rollout-…-<UUID>.jsonl. Anchor to UUID
+  // format so greedy [0-9a-f-]+ doesn't snag the timestamp prefix
+  // (e.g. "16-43-37-…").
+  const m = path.basename(filePath).match(
+    /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i
+  );
+  if (!m) return null;
+  const session_id = m[1];
+
+  let stat;
+  try { stat = await fs.stat(filePath); } catch { return null; }
+
+  // Stream line-by-line with early exit. Session_meta (first line of every
+  // transcript) carries the full Codex system prompt and easily exceeds
+  // 64KB, so a fixed-byte slice can chop it mid-string and JSON.parse
+  // fails. readline gives us complete lines regardless of length.
+  let cwd = "";
+  let firstPrompt = "";
+  const stream = createReadStream(filePath, { encoding: "utf-8" });
+  const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+  try {
+    for await (const line of rl) {
+      if (!line || line[0] !== "{") continue;
+      if (!cwd && line.includes('"session_meta"')) {
+        try {
+          const o = JSON.parse(line);
+          if (o.type === "session_meta" && o.payload && o.payload.cwd) {
+            cwd = String(o.payload.cwd).trim();
+          }
+        } catch {}
+      }
+      // Older Codex versions only had cwd inside the env-context user msg.
+      if (!cwd && line.includes("<cwd>")) {
+        const cm = line.match(/<cwd>([^<]+)<\/cwd>/);
+        if (cm) cwd = cm[1].trim();
+      }
+      if (!firstPrompt && line.includes('"user_message"')) {
+        try {
+          const o = JSON.parse(line);
+          if (o.type === "event_msg" && o.payload && o.payload.type === "user_message") {
+            firstPrompt = (o.payload.message || "").trim();
+          }
+        } catch {}
+      }
+      if (cwd && firstPrompt) break;
+    }
+  } finally {
+    rl.close();
+    stream.destroy();
+  }
+  if (!cwd) return null;
+  return {
+    session_id,
+    cwd,
+    agent: "codex",
+    name: "",
+    first_prompt: firstPrompt.slice(0, 200),
+    last_modified: stat.mtimeMs,
+  };
 }
 
 // --- File watcher ----------------------------------------------------------
