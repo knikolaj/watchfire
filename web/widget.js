@@ -300,21 +300,51 @@ function renderRow(s, now) {
 
 // --- Mini bar (collapsed view) ---------------------------------------------
 
-// Order matches user's mental model: waiting+done on the wrapping first line,
-// running+idle on the second line. The flex-wrap container does the actual
-// 2-per-line break based on element widths.
-const MINI_ORDER = ["waiting_input", "done", "working", "idle"];
-const STATUS_LABEL = { working: "running", waiting_input: "waiting", done: "done", idle: "idle" };
+// Mini-bar renderer:
+//   • Row 1 — every session in waiting_input as a clickable name. The whole
+//     point of this view is "who wants my attention?" so we surface them
+//     by name, not as an aggregate count.
+//   • Row 2 — N running · N done. Counts only.
+// idle is dropped — at this density it's just noise.
 
 function renderMiniBar() {
-  const counts = { working: 0, waiting_input: 0, done: 0, idle: 0 };
-  for (const s of sessions.values()) counts[s.status || "idle"] = (counts[s.status || "idle"] || 0) + 1;
-  miniBarEl.innerHTML = MINI_ORDER.map(st => {
-    const n = counts[st] || 0;
-    return `<span class="stat ${n === 0 ? "zero" : ""}">
-      <span class="dot ${st}"></span><span class="n">${n}</span>${STATUS_LABEL[st]}
+  const waiting = [];
+  let running = 0, done = 0;
+  for (const s of sessions.values()) {
+    const status = s.status || "idle";
+    if (status === "waiting_input") waiting.push(s);
+    else if (status === "working")  running++;
+    else if (status === "done")     done++;
+  }
+  waiting.sort((a, b) => (b.last_event_at || 0) - (a.last_event_at || 0));
+
+  const waitingHtml = waiting.length === 0
+    ? `<span class="mini-empty">no waiting</span>`
+    : waiting.map(s => `
+        <span class="mini-waiting" data-id="${escapeAttr(s.session_id)}">
+          <span class="dot waiting_input"></span>
+          <span class="name">${escape(nameOrPrompt(s))}</span>
+        </span>`).join("");
+
+  const countsHtml = `
+    <span class="mini-count${running === 0 ? " zero" : ""}">
+      <span class="dot working"></span><span class="n">${running}</span>running
+    </span>
+    <span class="mini-count${done === 0 ? " zero" : ""}">
+      <span class="dot done"></span><span class="n">${done}</span>done
     </span>`;
-  }).join("");
+
+  miniBarEl.innerHTML = `
+    <div class="mini-waiting-row">${waitingHtml}</div>
+    <div class="mini-counts-row">${countsHtml}</div>`;
+
+  // Click a waiting chip → focus its WT tab.
+  for (const el of miniBarEl.querySelectorAll(".mini-waiting")) {
+    el.addEventListener("click", () => {
+      const s = sessions.get(el.dataset.id);
+      if (s) focusSession(s);
+    });
+  }
 }
 
 // Initial mode is full. Persist user's choice in localStorage so reloads keep it.
