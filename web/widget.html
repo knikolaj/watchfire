@@ -370,7 +370,16 @@
     .hist-ctx .pct.warn   { color: #f39c12; font-weight: bold; }
     .hist-ctx .pct.danger { color: var(--status-waiting); font-weight: bold; }
     .hist-ctx .lim { font-size: 9px; color: var(--text-muted); }
-    .hist-ago { color: var(--text-dim); font-size: 10px; }
+    .hist-ago {
+      color: var(--text-dim);
+      font-size: 10px;
+      /* Reserve room for the widest format ("11h" / "31s") so the column
+         doesn't jitter between rows. tabular-nums keeps the digits the
+         same width even when the font isn't strictly monospace. */
+      min-width: 3ch;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
   </style>
 </head>
 <body>
