@@ -49,25 +49,36 @@
       flex: 1;
       padding: 6px 0 8px;
     }
-    body.mini .scroll { display: none; }
+    /* Panel visibility per mode (full | mini | history). Default = full. */
+    body:not(.mode-mini):not(.mode-history) .scroll { display: block; }
+    body.mode-mini    .scroll  { display: none; }
+    body.mode-history .scroll  { display: none; }
 
-    /* Toggle (collapse / expand) — pinned top-right. */
-    .toggle {
+    /* Mode bar — three-button segment control top-right. The active mode
+       has a brighter foreground + slightly inset background. */
+    .modebar {
       position: fixed;
       top: 4px;
       right: 6px;
       z-index: 50;
-      width: 18px; height: 18px;
+      display: flex;
+      gap: 1px;
+      user-select: none;
+    }
+    .mode-btn {
+      width: 20px; height: 18px;
       display: flex;
       align-items: center;
       justify-content: center;
       cursor: pointer;
       color: var(--text-dim);
       font-size: 11px;
-      user-select: none;
       border-radius: 3px;
+      background: transparent;
+      border: 0;
     }
-    .toggle:hover { background: var(--bg-row-hover); color: var(--text); }
+    .mode-btn:hover { background: var(--bg-row-hover); color: var(--text); }
+    .mode-btn.active { background: var(--bg-row); color: var(--text); }
 
     /* Mini bar — two stacked rows:
          row 1: waiting sessions (clickable, jumps to that WT tab)
@@ -87,8 +98,8 @@
       min-height: 56px;
       box-sizing: border-box;
     }
-    body.mini .mini-bar { display: flex; flex: 1; }
-    body.mini html, body.mini { overflow: hidden; }
+    body.mode-mini .mini-bar { display: flex; flex: 1; }
+    body.mode-mini html, body.mode-mini { overflow: hidden; }
 
     .mini-waiting-row, .mini-counts-row {
       display: flex;
@@ -266,12 +277,102 @@
       padding: 40px 20px;
       font-size: 11px;
     }
+
+    /* History view ------------------------------------------------------- */
+    .history { display: none; flex-direction: column; flex: 1; overflow: hidden; }
+    body.mode-history .history { display: flex; }
+
+    .history-toolbar {
+      display: flex;
+      gap: 4px;
+      padding: 6px 30px 6px 10px;   /* right pad for the modebar */
+      font-size: 10px;
+      color: var(--text-dim);
+      border-bottom: 1px solid var(--border);
+    }
+    .hs-toggle {
+      padding: 2px 8px;
+      cursor: pointer;
+      border-radius: 3px;
+      background: transparent;
+      border: 0;
+      color: var(--text-dim);
+      font: inherit;
+    }
+    .hs-toggle:hover  { background: var(--bg-row-hover); color: var(--text); }
+    .hs-toggle.active { background: var(--bg-row); color: var(--text); }
+
+    .history-body { overflow-y: scroll; flex: 1; padding: 6px 0 8px; }
+    .history-body::-webkit-scrollbar { width: 8px; }
+    .history-body::-webkit-scrollbar-track { background: transparent; }
+    .history-body::-webkit-scrollbar-thumb {
+      background: #4a5a70; border-radius: 4px; border: 1px solid #2c3a4d;
+    }
+
+    .hist-group { padding: 4px 10px 0; }
+    .hist-group-header {
+      color: var(--text-dim);
+      font-size: 10px;
+      padding: 2px 0 4px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      user-select: none;
+    }
+    .hist-group-header:hover .hg-toggle { color: var(--text); }
+    .hg-meta { color: var(--text-muted); }
+
+    .hist-bucket { padding: 0 10px; }
+    .hist-bucket-header {
+      color: var(--text-dim);
+      font-size: 10px;
+      padding: 8px 0 4px;
+      user-select: none;
+    }
+    .hb-count { color: var(--text-muted); }
+
+    .hist-row {
+      display: grid;
+      grid-template-columns: 22px 1fr auto;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 6px;
+      margin-bottom: 2px;
+      background: var(--bg-row);
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 11px;
+    }
+    .hist-row:hover { background: var(--bg-row-hover); }
+    .hist-row .badge { width: 18px; height: 18px; }
+    .hist-body {
+      min-width: 0; line-height: 1.2;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .hist-body .name {
+      color: var(--text);
+      overflow: hidden; text-overflow: ellipsis;
+    }
+    .hist-cwd { color: var(--text-muted); font-size: 9px; }
+    .hist-ago { color: var(--text-dim); font-size: 10px; }
   </style>
 </head>
 <body>
   <div class="mini-bar" id="miniBar"></div>
   <div class="scroll" id="scroll"></div>
-  <div class="toggle" id="toggle" title="Collapse to mini bar">–</div>
+  <div class="history" id="history">
+    <div class="history-toolbar">
+      <button class="hs-toggle" data-sort="project">by project</button>
+      <button class="hs-toggle" data-sort="time">by time</button>
+    </div>
+    <div class="history-body" id="historyBody"></div>
+  </div>
+  <div class="modebar" id="modebar">
+    <button class="mode-btn" data-mode="full"    title="Statuses (full list)">▤</button>
+    <button class="mode-btn" data-mode="mini"    title="Statuses (mini bar)">─</button>
+    <button class="mode-btn" data-mode="history" title="History (all chats)">⏱</button>
+  </div>
   <div id="tooltip"></div>
   <script type="module" src="./widget.js"></script>
 </body>

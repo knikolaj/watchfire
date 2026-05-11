@@ -186,6 +186,129 @@ export function renderMiniBarHtml(sessionsArr) {
     <div class="mini-counts-row">${countsHtml}</div>`;
 }
 
+// --- History view ---------------------------------------------------------
+// History is "every chat across every project, regardless of whether a
+// session is currently running". No status colors — at this point we just
+// care that a chat exists. Each row carries the agent badge for identity
+// and the time-since-last-activity for ordering context.
+
+/** Pure helper — "14m / 2h / 1d / 3w" style relative time. */
+export function fmtAgo(seconds) {
+  if (seconds < 60)         return `${Math.floor(seconds)}s`;
+  if (seconds < 3600)       return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86_400)     return `${Math.floor(seconds / 3600)}h`;
+  if (seconds < 86_400 * 7) return `${Math.floor(seconds / 86_400)}d`;
+  if (seconds < 86_400 * 30) return `${Math.floor(seconds / (86_400 * 7))}w`;
+  return `${Math.floor(seconds / (86_400 * 30))}mo`;
+}
+
+function chatName(c) {
+  return c.name || (c.first_prompt || "").trim() || (c.session_id || "").slice(0, 8);
+}
+
+function agentBadge(agent) {
+  const isCodex = agent === "codex";
+  const cls = isCodex ? "codex" : "claude";
+  const logo = isCodex ? SVG_OPENAI : SVG_ANTHROPIC;
+  return `<div class="badge ${cls}">${logo}</div>`;
+}
+
+/** History grouped by cwd; groups collapsed by default. Sorted by the
+ *  freshest chat inside each group. */
+export function renderHistoryByProjectHtml(chats, now, opts = {}) {
+  const expanded = opts.expanded ?? new Set();   // cwds the user opened
+  if (chats.length === 0) {
+    return `<div class="empty">No chats on disk yet.</div>`;
+  }
+  // Group by cwd.
+  const groups = new Map();
+  for (const c of chats) {
+    const k = c.cwd || "(unknown)";
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(c);
+  }
+  // Sort inside each group + groups by freshest.
+  for (const arr of groups.values()) arr.sort((a, b) => b.last_modified - a.last_modified);
+  const sorted = [...groups.entries()].sort((a, b) =>
+    (b[1][0]?.last_modified || 0) - (a[1][0]?.last_modified || 0));
+
+  return sorted.map(([cwd, list]) => {
+    const isOpen = expanded.has(cwd);
+    const arrow = isOpen ? "▾" : "▸";
+    const topAgo = fmtAgo(now - (list[0].last_modified / 1000));
+    const rows = isOpen
+      ? list.map(c => renderHistoryChatRowHtml(c, now, /*showCwd=*/false)).join("")
+      : "";
+    return `
+      <div class="hist-group">
+        <div class="hist-group-header" data-cwd="${escapeAttr(cwd)}">
+          <span class="hg-toggle">${arrow} ${escape(shortPath(cwd))}</span>
+          <span class="hg-meta">[${list.length}] · ${topAgo}</span>
+        </div>
+        ${rows}
+      </div>`;
+  }).join("");
+}
+
+/** History grouped by time buckets (Today / Yesterday / Last 7 days / Older).
+ *  Each row shows the project as a faint tag on the right. */
+export function renderHistoryByTimeHtml(chats, now) {
+  if (chats.length === 0) {
+    return `<div class="empty">No chats on disk yet.</div>`;
+  }
+  const todayStart     = startOfDayMs(now);
+  const yesterdayStart = todayStart - 86_400_000;
+  const weekStart      = todayStart - 6 * 86_400_000;
+
+  const buckets = { today: [], yesterday: [], week: [], older: [] };
+  for (const c of chats) {
+    const ms = c.last_modified;
+    if      (ms >= todayStart)     buckets.today.push(c);
+    else if (ms >= yesterdayStart) buckets.yesterday.push(c);
+    else if (ms >= weekStart)      buckets.week.push(c);
+    else                            buckets.older.push(c);
+  }
+  for (const k of Object.keys(buckets)) {
+    buckets[k].sort((a, b) => b.last_modified - a.last_modified);
+  }
+
+  const sections = [
+    ["Today",        buckets.today],
+    ["Yesterday",    buckets.yesterday],
+    ["Last 7 days",  buckets.week],
+    ["Older",        buckets.older],
+  ].filter(([_, list]) => list.length > 0);
+
+  return sections.map(([label, list]) => `
+    <div class="hist-bucket">
+      <div class="hist-bucket-header">${label} <span class="hb-count">(${list.length})</span></div>
+      ${list.map(c => renderHistoryChatRowHtml(c, now, /*showCwd=*/true)).join("")}
+    </div>`).join("");
+}
+
+/** Today's midnight in epoch milliseconds, in the user's local timezone. */
+function startOfDayMs(now) {
+  const d = new Date(now * 1000);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+function renderHistoryChatRowHtml(c, now, showCwd) {
+  const ago = fmtAgo(now - (c.last_modified / 1000));
+  const cwdTag = showCwd
+    ? `<span class="hist-cwd">${escape(shortPath(c.cwd))}</span>`
+    : "";
+  return `
+    <div class="hist-row" data-id="${escapeAttr(c.session_id)}" data-cwd="${escapeAttr(c.cwd)}">
+      ${agentBadge(c.agent)}
+      <div class="hist-body">
+        <div class="name">${escape(chatName(c))}</div>
+        ${cwdTag}
+      </div>
+      <div class="hist-ago">${ago}</div>
+    </div>`;
+}
+
 const POPUP_PALETTE = {
   working: "#ffd166", waiting_input: "#ef476f",
   done: "#06d6a0", idle: "#6c7a89",

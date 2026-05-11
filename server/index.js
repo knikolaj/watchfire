@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import chokidar from "chokidar";
 import { WebSocketServer } from "ws";
 
-import { listChatsForCwd } from "./chats.js";
+import { listChatsForCwd, listAllChats } from "./chats.js";
 import { prePruneBoot, pruneOrphanedSessions } from "./prune.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -70,6 +70,13 @@ async function handleRequest(req, res) {
     const result = await focusWindowsTerminal(tabName);
     res.writeHead(200, { "content-type": "application/json" });
     return res.end(JSON.stringify(result));
+  }
+  if (req.method === "GET" && req.url.startsWith("/chats-all")) {
+    const url = new URL(req.url, "http://x");
+    const limit = Math.min(2000, Math.max(1, Number(url.searchParams.get("limit")) || 500));
+    const list = await listAllChats({ limit });
+    res.writeHead(200, { "content-type": "application/json" });
+    return res.end(JSON.stringify(list));
   }
   if (req.method === "GET" && req.url.startsWith("/chats")) {
     const url = new URL(req.url, "http://x");

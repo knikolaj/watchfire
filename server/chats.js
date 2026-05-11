@@ -35,6 +35,79 @@ export async function listChatsForCwd(cwd, opts = {}) {
     .slice(0, 50);
 }
 
+/** Every transcript from every project. Used by the history tab — the
+ *  "what have I ever done with these agents" view, independent of which
+ *  sessions are currently running.
+ *
+ *  Returns at most `limit` chats sorted by last_modified desc. Each entry
+ *  carries `{ session_id, cwd, agent, name, first_prompt, last_modified }`
+ *  so the client can group/sort however it wants. */
+export async function listAllChats(opts = {}) {
+  const limit = opts.limit ?? 500;
+  const [claude, codex] = await Promise.all([
+    listAllClaudeChats(opts),
+    listAllCodexChats(opts),
+  ]);
+  return [...claude, ...codex]
+    .sort((a, b) => b.last_modified - a.last_modified)
+    .slice(0, limit);
+}
+
+async function listAllClaudeChats(opts = {}) {
+  const claudeDir = opts.claudeDir ?? DEFAULT_CLAUDE_PROJECTS;
+  let entries;
+  try {
+    entries = await fs.readdir(claudeDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  // Skip cron-sandbox projects (daily-summary, fireflies-sync). They're
+  // the same kind of background runs the hook filters at runtime — they
+  // shouldn't bloat the history either.
+  const projDirs = entries.filter(e => e.isDirectory()
+    && !e.name.includes("claude-daily-summary")
+    && !e.name.includes("claude-meeting-summaries"));
+  const out = [];
+  for (const dir of projDirs) {
+    // Reverse-flattening the dir name is ambiguous (claude flattens both
+    // `/` and `-` into `-`). Fall back to it only if the transcript itself
+    // doesn't carry the cwd inside its records.
+    const fallbackCwd = "/" + dir.name.replace(/^-/, "").replace(/-/g, "/");
+    const projDir = path.join(claudeDir, dir.name);
+    let files;
+    try {
+      files = (await fs.readdir(projDir)).filter(f => f.endsWith(".jsonl"));
+    } catch { continue; }
+    for (const f of files) {
+      const fp = path.join(projDir, f);
+      let stat;
+      try { stat = await fs.stat(fp); } catch { continue; }
+      const meta = await extractClaudeTranscriptMeta(fp);
+      const cwd = (meta.cwd || fallbackCwd).toLowerCase();
+      out.push({
+        session_id: f.replace(/\.jsonl$/, ""),
+        cwd,
+        agent: "claude",
+        name: meta.name || "",
+        first_prompt: meta.first_prompt || "",
+        last_modified: stat.mtimeMs,
+      });
+    }
+  }
+  return out;
+}
+
+async function listAllCodexChats(opts = {}) {
+  const idx = await buildCodexIndex(opts);
+  const out = [];
+  for (const chats of idx.values()) {
+    for (const c of chats) {
+      out.push({ ...c, cwd: c.cwd.toLowerCase() });
+    }
+  }
+  return out;
+}
+
 export async function listClaudeChatsForCwd(cwd, opts = {}) {
   const claudeDir = opts.claudeDir ?? DEFAULT_CLAUDE_PROJECTS;
   const targetKey = cwd.replace(/\//g, "-").toLowerCase();
@@ -109,6 +182,7 @@ export async function extractClaudeTranscriptMeta(filePath) {
   try { raw = await fs.readFile(filePath, "utf-8"); } catch { return {}; }
   let custom = "";
   let firstPrompt = "";
+  let cwd = "";
   for (const line of raw.split("\n")) {
     if (!line || line[0] !== "{") continue;
     if (line.includes('"custom-title"')) {
@@ -118,6 +192,10 @@ export async function extractClaudeTranscriptMeta(filePath) {
       try {
         const o = JSON.parse(line);
         if (o.type === "user") {
+          // user entries carry the cwd directly — reliable source of truth,
+          // since reverse-flattening the project dir name loses the
+          // distinction between `/` and `-`.
+          if (!cwd && typeof o.cwd === "string") cwd = o.cwd;
           const m = o.message || {};
           if (typeof m.content === "string") firstPrompt = m.content;
           else if (Array.isArray(m.content)) {
@@ -127,9 +205,9 @@ export async function extractClaudeTranscriptMeta(filePath) {
         }
       } catch {}
     }
-    if (custom && firstPrompt) break;
+    if (custom && firstPrompt && cwd) break;
   }
-  return { name: custom, first_prompt: firstPrompt.slice(0, 200) };
+  return { name: custom, first_prompt: firstPrompt.slice(0, 200), cwd };
 }
 
 export async function extractCodexTranscriptMeta(filePath) {

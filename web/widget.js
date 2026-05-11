@@ -14,6 +14,8 @@ import {
   renderListHtml,
   renderMiniBarHtml,
   renderChatsPopupHtml,
+  renderHistoryByProjectHtml,
+  renderHistoryByTimeHtml,
 } from "./widget-pure.js";
 
 const sessions = new Map();        // session_id -> session
@@ -23,10 +25,19 @@ const chatsCache   = new Map();     // cwd -> chat list (cached /chats response)
 const chatsFetches = new Set();     // cwds with an in-flight /chats request
 let pinnedCwd = null;               // cwd whose chats popup is currently pinned open
 
-const scrollEl  = document.getElementById("scroll");
-const tooltipEl = document.getElementById("tooltip");
-const miniBarEl = document.getElementById("miniBar");
-const toggleEl  = document.getElementById("toggle");
+const scrollEl   = document.getElementById("scroll");
+const tooltipEl  = document.getElementById("tooltip");
+const miniBarEl  = document.getElementById("miniBar");
+const modebarEl  = document.getElementById("modebar");
+const historyEl  = document.getElementById("history");
+const historyBodyEl = document.getElementById("historyBody");
+
+// History view state — populated by /chats-all the first time mode=history
+// is entered. Persisted-by-app: chats list itself is a fetch, expanded set
+// + sort lives in memory + localStorage.
+let historyChats = null;        // null = not loaded yet, array once loaded
+let historyFetching = false;
+const historyExpanded = new Set();
 
 // --- Render ----------------------------------------------------------------
 
@@ -140,23 +151,120 @@ document.addEventListener("click", (e) => {
   render();
 });
 
-// --- Mini bar toggle -------------------------------------------------------
+// --- Mode switcher ---------------------------------------------------------
+// Three mutually-exclusive modes drive which top-level panel is visible:
+//   full    — the scrollable session list
+//   mini    — the compact "who's waiting" strip
+//   history — every chat ever, grouped by project or by time
+// Persisted in localStorage. Migrates from the legacy `orchestrator.mini`
+// flag (1 → mini, 0 → full) on first run.
 
-const MINI_KEY = "orchestrator.mini";   // legacy key — keep for migration
-function setMini(on) {
-  document.body.classList.toggle("mini", on);
-  toggleEl.textContent = on ? "▢" : "–";
-  toggleEl.title = on ? "Expand" : "Collapse to mini bar";
-  try { localStorage.setItem(MINI_KEY, on ? "1" : "0"); } catch {}
-  // window.resizeTo() is blocked by Edge for windows it didn't open via JS
-  // (the --app launch). No-op if blocked.
+const MODE_KEY        = "watchfire.mode";
+const LEGACY_MINI_KEY = "orchestrator.mini";
+const HSORT_KEY       = "watchfire.historySort";
+
+function currentMode() {
   try {
-    if (on) window.resizeTo(window.outerWidth, 90);
-    else    window.resizeTo(window.outerWidth, 480);
+    const m = localStorage.getItem(MODE_KEY);
+    if (m === "full" || m === "mini" || m === "history") return m;
+    // Legacy: orchestrator.mini=1 → mini
+    if (localStorage.getItem(LEGACY_MINI_KEY) === "1") return "mini";
   } catch {}
+  return "full";
 }
-toggleEl.addEventListener("click", () => setMini(!document.body.classList.contains("mini")));
-try { if (localStorage.getItem(MINI_KEY) === "1") setMini(true); } catch {}
+
+function setMode(m) {
+  document.body.classList.remove("mode-full", "mode-mini", "mode-history");
+  document.body.classList.add(`mode-${m}`);
+  for (const b of modebarEl.querySelectorAll(".mode-btn")) {
+    b.classList.toggle("active", b.dataset.mode === m);
+  }
+  try { localStorage.setItem(MODE_KEY, m); } catch {}
+  // window.resizeTo is blocked by Edge for windows it didn't open via JS
+  // (the --app launch). No-op if blocked. Heights are just hints; user
+  // can resize manually afterwards.
+  try {
+    if      (m === "mini")    window.resizeTo(window.outerWidth, 90);
+    else if (m === "history") window.resizeTo(window.outerWidth, 600);
+    else                       window.resizeTo(window.outerWidth, 480);
+  } catch {}
+  if (m === "history") loadHistory();
+}
+
+for (const b of modebarEl.querySelectorAll(".mode-btn")) {
+  b.addEventListener("click", () => setMode(b.dataset.mode));
+}
+setMode(currentMode());
+
+// --- History view ----------------------------------------------------------
+
+function currentHistorySort() {
+  try {
+    const s = localStorage.getItem(HSORT_KEY);
+    if (s === "project" || s === "time") return s;
+  } catch {}
+  return "project";
+}
+
+function setHistorySort(s) {
+  try { localStorage.setItem(HSORT_KEY, s); } catch {}
+  for (const b of historyEl.querySelectorAll(".hs-toggle")) {
+    b.classList.toggle("active", b.dataset.sort === s);
+  }
+  renderHistory();
+}
+
+async function loadHistory() {
+  if (historyChats !== null || historyFetching) {
+    renderHistory();   // already have data — paint with what we've got
+    return;
+  }
+  historyFetching = true;
+  historyBodyEl.innerHTML = `<div class="empty">Loading history…</div>`;
+  try {
+    const r = await fetch("/chats-all");
+    historyChats = r.ok ? await r.json() : [];
+  } catch {
+    historyChats = [];
+  } finally {
+    historyFetching = false;
+    renderHistory();
+  }
+}
+
+function renderHistory() {
+  if (historyChats === null) return;   // not loaded yet
+  const sort = currentHistorySort();
+  const now = Date.now() / 1000;
+  historyBodyEl.innerHTML = sort === "time"
+    ? renderHistoryByTimeHtml(historyChats, now)
+    : renderHistoryByProjectHtml(historyChats, now, { expanded: historyExpanded });
+
+  for (const h of historyBodyEl.querySelectorAll(".hist-group-header")) {
+    h.addEventListener("click", () => {
+      const cwd = h.dataset.cwd;
+      historyExpanded.has(cwd) ? historyExpanded.delete(cwd) : historyExpanded.add(cwd);
+      renderHistory();
+    });
+  }
+  for (const row of historyBodyEl.querySelectorAll(".hist-row")) {
+    row.addEventListener("click", () => {
+      // Best-effort: if this chat happens to be currently active, focus it.
+      // For pure history entries we don't (yet) try to resume — just no-op.
+      const id = row.dataset.id;
+      const s = sessions.get(id);
+      if (s) focusSession(s);
+    });
+  }
+}
+
+for (const b of historyEl.querySelectorAll(".hs-toggle")) {
+  b.addEventListener("click", () => setHistorySort(b.dataset.sort));
+}
+// Initial toolbar highlight (history pane doesn't paint until first visit).
+for (const b of historyEl.querySelectorAll(".hs-toggle")) {
+  b.classList.toggle("active", b.dataset.sort === currentHistorySort());
+}
 
 // --- Tooltip ---------------------------------------------------------------
 
