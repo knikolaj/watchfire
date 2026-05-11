@@ -93,6 +93,29 @@ test("renderHistoryByProjectHtml omits status — only badge + name + ago", () =
   assert.match(html, /badge (claude|codex)/);
 });
 
+test("renderHistoryByProjectHtml shows context % when both tokens and limit are present", () => {
+  const html = renderHistoryByProjectHtml(
+    [c({ cwd: "/p", name: "x",
+         context_tokens: 410_000, context_limit: 1_000_000 })],
+    NOW,
+    { expanded: new Set(["/p"]) },
+  );
+  assert.match(html, /41%/);
+  assert.match(html, /\[1M\]/);
+});
+
+test("renderHistoryByProjectHtml omits context block when tokens/limit absent", () => {
+  // Empty `.hist-ctx` div is fine — it just keeps the grid column happy.
+  const html = renderHistoryByProjectHtml(
+    [c({ cwd: "/p", name: "x" })],
+    NOW,
+    { expanded: new Set(["/p"]) },
+  );
+  assert.doesNotMatch(html, /\d+%/);
+  // [N] group count is fine; we just don't want a [1M]/[256K] context-limit tag.
+  assert.doesNotMatch(html, /\[\d+(M|K)\]/);
+});
+
 // --- renderHistoryByTimeHtml ----------------------------------------------
 
 test("renderHistoryByTimeHtml buckets into Today / Yesterday / Last 7 / Older", () => {

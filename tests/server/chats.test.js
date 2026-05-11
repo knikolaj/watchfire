@@ -17,6 +17,7 @@ import {
   buildCodexIndex,
   extractClaudeTranscriptMeta,
   extractCodexTranscriptMeta,
+  modelLimit,
 } from "../../server/chats.js";
 
 // --- helpers ---------------------------------------------------------------
@@ -198,4 +199,60 @@ test("listChatsForCwd merges claude + codex, sorted by mtime desc", async () => 
 test("listChatsForCwd returns [] for empty cwd", async () => {
   const out = await listChatsForCwd("");
   assert.deepEqual(out, []);
+});
+
+// --- Context % extraction -------------------------------------------------
+
+test("modelLimit picks the longest matching prefix", () => {
+  assert.equal(modelLimit("claude-opus-4-7"),     1_000_000);
+  assert.equal(modelLimit("claude-opus-4-7[1m]"), 1_000_000);
+  assert.equal(modelLimit("claude-opus-4-6"),     1_000_000);
+  assert.equal(modelLimit("claude-sonnet-4-6"),   1_000_000);
+  assert.equal(modelLimit("claude-haiku-4-5"),      200_000);
+  assert.equal(modelLimit("claude-opus-4-1"),       200_000);
+  assert.equal(modelLimit("gpt-5"),                 400_000);
+  assert.equal(modelLimit(""),                      200_000);
+  assert.equal(modelLimit("unknown"),               200_000);
+});
+
+test("extractClaudeTranscriptMeta returns context_tokens + context_limit from last assistant usage", async () => {
+  const dir = await tmpDir("claude-usage");
+  const fp = path.join(dir, "t.jsonl");
+  await writeJsonl(fp, [
+    { type: "assistant", message: { model: "claude-opus-4-7",
+      usage: { input_tokens: 50, cache_creation_input_tokens: 10, cache_read_input_tokens: 100 } } },
+    { type: "user", message: { content: "next prompt" } },
+    // LAST assistant turn is what counts — earlier ones must be overridden.
+    { type: "assistant", message: { model: "claude-opus-4-7",
+      usage: { input_tokens: 200, cache_creation_input_tokens: 50, cache_read_input_tokens: 5000 } } },
+  ]);
+  const meta = await extractClaudeTranscriptMeta(fp);
+  assert.equal(meta.context_tokens, 200 + 50 + 5000);
+  assert.equal(meta.context_limit, 1_000_000);
+});
+
+test("extractClaudeTranscriptMeta leaves context fields absent when transcript has no usage", async () => {
+  const dir = await tmpDir("claude-no-usage");
+  const fp = path.join(dir, "t.jsonl");
+  await writeJsonl(fp, [{ type: "user", message: { content: "no usage line" } }]);
+  const meta = await extractClaudeTranscriptMeta(fp);
+  assert.equal(meta.context_tokens, undefined);
+  assert.equal(meta.context_limit, undefined);
+});
+
+test("extractCodexTranscriptMeta returns context_tokens + context_limit from last token_count", async () => {
+  const dir = await tmpDir("codex-tc");
+  const fp = path.join(dir, "rollout-019d1234-5678-7abc-9def-0123456789ab.jsonl");
+  await writeJsonl(fp, [
+    { type: "session_meta", payload: { cwd: "/p" } },
+    { type: "event_msg", payload: { type: "user_message", message: "hi" } },
+    { type: "event_msg", payload: { type: "token_count",
+      info: { last_token_usage: { input_tokens: 1234 }, model_context_window: 258400 } } },
+    // A second token_count later — must override the first.
+    { type: "event_msg", payload: { type: "token_count",
+      info: { last_token_usage: { input_tokens: 9999 }, model_context_window: 258400 } } },
+  ]);
+  const meta = await extractCodexTranscriptMeta(fp);
+  assert.equal(meta.context_tokens, 9999);
+  assert.equal(meta.context_limit, 258400);
 });

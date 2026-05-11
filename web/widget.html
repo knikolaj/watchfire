@@ -334,7 +334,7 @@
 
     .hist-row {
       display: grid;
-      grid-template-columns: 22px 1fr auto;
+      grid-template-columns: 22px 1fr auto auto;
       align-items: center;
       gap: 6px;
       padding: 3px 6px;
@@ -355,6 +355,11 @@
       overflow: hidden; text-overflow: ellipsis;
     }
     .hist-cwd { color: var(--text-muted); font-size: 9px; }
+    .hist-ctx { text-align: right; line-height: 1.2; min-width: 32px; }
+    .hist-ctx .pct { font-size: 10px; color: var(--text); }
+    .hist-ctx .pct.warn   { color: #f39c12; font-weight: bold; }
+    .hist-ctx .pct.danger { color: var(--status-waiting); font-weight: bold; }
+    .hist-ctx .lim { font-size: 9px; color: var(--text-muted); }
     .hist-ago { color: var(--text-dim); font-size: 10px; }
   </style>
 </head>

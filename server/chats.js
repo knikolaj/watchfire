@@ -21,6 +21,27 @@ const DEFAULT_CLAUDE_PROJECTS = path.join(os.homedir(), ".claude", "projects");
 const DEFAULT_CODEX_SESSIONS  = path.join(os.homedir(), ".codex",  "sessions");
 export const CODEX_INDEX_TTL_MS = 30_000;
 
+// Mirror of MODEL_LIMITS in hooks/emit_state.py. Used when a Claude
+// transcript carries `usage` but no explicit context_limit (the
+// model_context_window field is codex-only). Longest-prefix match so
+// claude-opus-4-7 wins over claude-opus-4.
+const MODEL_LIMITS = {
+  "claude-opus-4-7":   1_000_000,
+  "claude-opus-4-6":   1_000_000,
+  "claude-sonnet-4-6": 1_000_000,
+  "claude-haiku-4-5":    200_000,
+  "claude-opus-4":       200_000,
+  "claude-sonnet-4":     200_000,
+  "gpt-5":               400_000,
+};
+const MODEL_KEYS_BY_LEN = Object.keys(MODEL_LIMITS).sort((a, b) => b.length - a.length);
+
+export function modelLimit(model) {
+  if (!model) return 200_000;
+  for (const k of MODEL_KEYS_BY_LEN) if (model.startsWith(k)) return MODEL_LIMITS[k];
+  return 200_000;
+}
+
 // Module-level cache used by production. Tests pass their own.
 const _defaultCodexCache = { built: 0, byCwd: new Map() };
 
@@ -84,14 +105,19 @@ async function listAllClaudeChats(opts = {}) {
       try { stat = await fs.stat(fp); } catch { continue; }
       const meta = await extractClaudeTranscriptMeta(fp);
       const cwd = (meta.cwd || fallbackCwd).toLowerCase();
-      out.push({
+      const row = {
         session_id: f.replace(/\.jsonl$/, ""),
         cwd,
         agent: "claude",
         name: meta.name || "",
         first_prompt: meta.first_prompt || "",
         last_modified: stat.mtimeMs,
-      });
+      };
+      if (meta.context_tokens != null && meta.context_limit) {
+        row.context_tokens = meta.context_tokens;
+        row.context_limit  = meta.context_limit;
+      }
+      out.push(row);
     }
   }
   return out;
@@ -183,6 +209,11 @@ export async function extractClaudeTranscriptMeta(filePath) {
   let custom = "";
   let firstPrompt = "";
   let cwd = "";
+  // Context % comes from the LAST assistant message's `usage` block
+  // (= what the model just had in its window). Track the most recent we
+  // see; can't break early because we want the freshest one.
+  let lastUsage = null;
+  let lastModel = "";
   for (const line of raw.split("\n")) {
     if (!line || line[0] !== "{") continue;
     if (line.includes('"custom-title"')) {
@@ -205,9 +236,26 @@ export async function extractClaudeTranscriptMeta(filePath) {
         }
       } catch {}
     }
-    if (custom && firstPrompt && cwd) break;
+    if (line.includes('"usage"')) {
+      try {
+        const o = JSON.parse(line);
+        const msg = o.message || {};
+        if (o.type === "assistant" && msg.usage) {
+          lastUsage = msg.usage;
+          if (msg.model) lastModel = msg.model;
+        }
+      } catch {}
+    }
   }
-  return { name: custom, first_prompt: firstPrompt.slice(0, 200), cwd };
+  const out = { name: custom, first_prompt: firstPrompt.slice(0, 200), cwd };
+  if (lastUsage) {
+    out.context_tokens =
+        (Number(lastUsage.input_tokens) || 0)
+      + (Number(lastUsage.cache_creation_input_tokens) || 0)
+      + (Number(lastUsage.cache_read_input_tokens) || 0);
+    out.context_limit = modelLimit(lastModel);
+  }
+  return out;
 }
 
 export async function extractCodexTranscriptMeta(filePath) {
@@ -228,6 +276,7 @@ export async function extractCodexTranscriptMeta(filePath) {
   // mid-string and break JSON.parse.
   let cwd = "";
   let firstPrompt = "";
+  let lastTokenInfo = null;        // last event_msg.token_count.info we see
   const stream = createReadStream(filePath, { encoding: "utf-8" });
   const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
   try {
@@ -254,14 +303,23 @@ export async function extractCodexTranscriptMeta(filePath) {
           }
         } catch {}
       }
-      if (cwd && firstPrompt) break;
+      // Track token_count for context %. Can't break early — we want the
+      // LAST one (current context fullness), so scan to end.
+      if (line.includes('"token_count"')) {
+        try {
+          const o = JSON.parse(line);
+          if (o.type === "event_msg" && o.payload && o.payload.type === "token_count" && o.payload.info) {
+            lastTokenInfo = o.payload.info;
+          }
+        } catch {}
+      }
     }
   } finally {
     rl.close();
     stream.destroy();
   }
   if (!cwd) return null;
-  return {
+  const out = {
     session_id,
     cwd,
     agent: "codex",
@@ -269,4 +327,13 @@ export async function extractCodexTranscriptMeta(filePath) {
     first_prompt: firstPrompt.slice(0, 200),
     last_modified: stat.mtimeMs,
   };
+  if (lastTokenInfo) {
+    const used = lastTokenInfo.last_token_usage?.input_tokens;
+    const limit = lastTokenInfo.model_context_window;
+    if (used != null && limit) {
+      out.context_tokens = Number(used);
+      out.context_limit = Number(limit);
+    }
+  }
+  return out;
 }

@@ -298,6 +298,12 @@ function renderHistoryChatRowHtml(c, now, showCwd) {
   const cwdTag = showCwd
     ? `<span class="hist-cwd">${escape(shortPath(c.cwd))}</span>`
     : "";
+  const ctxBlock = (c.context_tokens != null && c.context_limit)
+    ? `<div class="hist-ctx">
+         <div class="pct ${pctClass(100 * c.context_tokens / c.context_limit)}">${Math.round(100 * c.context_tokens / c.context_limit)}%</div>
+         <div class="lim">[${fmtLimit(c.context_limit)}]</div>
+       </div>`
+    : `<div class="hist-ctx"></div>`;
   return `
     <div class="hist-row" data-id="${escapeAttr(c.session_id)}" data-cwd="${escapeAttr(c.cwd)}">
       ${agentBadge(c.agent)}
@@ -305,6 +311,7 @@ function renderHistoryChatRowHtml(c, now, showCwd) {
         <div class="name">${escape(chatName(c))}</div>
         ${cwdTag}
       </div>
+      ${ctxBlock}
       <div class="hist-ago">${ago}</div>
     </div>`;
 }
