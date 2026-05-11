@@ -235,7 +235,9 @@ export function renderHistoryByProjectHtml(chats, now, opts = {}) {
   return sorted.map(([cwd, list]) => {
     const isOpen = expanded.has(cwd);
     const arrow = isOpen ? "▾" : "▸";
-    const topAgo = fmtAgo(now - (list[0].last_modified / 1000));
+    // Header carries only [N]. Per-chat times appear inside each row when
+    // expanded, so the group-level age was redundant — and stealing room
+    // from the project name, which we now ellipsis-truncate instead.
     const rows = isOpen
       ? list.map(c => renderHistoryChatRowHtml(c, now, /*showCwd=*/false)).join("")
       : "";
@@ -243,7 +245,7 @@ export function renderHistoryByProjectHtml(chats, now, opts = {}) {
       <div class="hist-group">
         <div class="hist-group-header" data-cwd="${escapeAttr(cwd)}">
           <span class="hg-toggle">${arrow} ${escape(shortPath(cwd))}</span>
-          <span class="hg-meta">[${list.length}] · ${topAgo}</span>
+          <span class="hg-meta">[${list.length}]</span>
         </div>
         ${rows}
       </div>`;

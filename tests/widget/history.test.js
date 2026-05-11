@@ -72,13 +72,15 @@ test("renderHistoryByProjectHtml collapses by default; expands when cwd in expan
   assert.match(expanded, /Secret Chat/);
 });
 
-test("renderHistoryByProjectHtml shows [N] and time-since-latest in group header", () => {
+test("renderHistoryByProjectHtml shows [N] in group header (and not the group-level age)", () => {
   const html = renderHistoryByProjectHtml([
     c({ cwd: "/p", last_modified: MS(NOW - 60) }),
     c({ cwd: "/p", last_modified: MS(NOW - 120), session_id: "older" }),
   ], NOW);
   assert.match(html, /\[2\]/);
-  assert.match(html, /1m/);   // 60 seconds ago in fmtAgo terms
+  // Group header now carries only the count — per-chat ages live inside
+  // each row (when the group is expanded). No "· 14m" trail next to [N].
+  assert.doesNotMatch(html, /\[2\]\s*·/);
 });
 
 test("renderHistoryByProjectHtml omits status — only badge + name + ago", () => {
