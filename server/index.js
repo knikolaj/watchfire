@@ -210,10 +210,15 @@ async function resolveSessionName(session) {
       if (name) return name;
     }
   }
-  // Fallback: short prefix of the last user prompt
-  const p = (session.last_prompt || "").trim().replace(/\s+/g, " ");
-  if (p) return p.slice(0, 30) + (p.length > 30 ? "…" : "");
-  return "";
+  // Fallback chain: first_prompt is the closest analogue to a "session
+  // title" (matches Claude UI's session list and the agent's mental model
+  // of "what was I asked to do"). last_prompt is the very-fresh-session
+  // fallback when first_prompt hasn't been extracted yet.
+  const shorten = (s) => {
+    const t = String(s || "").trim().replace(/\s+/g, " ");
+    return t ? t.slice(0, 30) + (t.length > 30 ? "…" : "") : "";
+  };
+  return shorten(session.first_prompt) || shorten(session.last_prompt) || "";
 }
 
 // --- File watcher ----------------------------------------------------------
