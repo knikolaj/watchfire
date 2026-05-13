@@ -276,6 +276,7 @@ export async function extractCodexTranscriptMeta(filePath) {
   // mid-string and break JSON.parse.
   let cwd = "";
   let firstPrompt = "";
+  let threadName = "";              // last thread_name_updated wins (Codex /rename)
   let lastTokenInfo = null;        // last event_msg.token_count.info we see
   const stream = createReadStream(filePath, { encoding: "utf-8" });
   const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
@@ -303,6 +304,14 @@ export async function extractCodexTranscriptMeta(filePath) {
           }
         } catch {}
       }
+      if (line.includes('"thread_name_updated"')) {
+        try {
+          const o = JSON.parse(line);
+          if (o.type === "event_msg" && o.payload && o.payload.type === "thread_name_updated" && o.payload.thread_name) {
+            threadName = String(o.payload.thread_name).trim();
+          }
+        } catch {}
+      }
       // Track token_count for context %. Can't break early — we want the
       // LAST one (current context fullness), so scan to end.
       if (line.includes('"token_count"')) {
@@ -323,7 +332,7 @@ export async function extractCodexTranscriptMeta(filePath) {
     session_id,
     cwd,
     agent: "codex",
-    name: "",
+    name: threadName,
     first_prompt: firstPrompt.slice(0, 200),
     last_modified: stat.mtimeMs,
   };

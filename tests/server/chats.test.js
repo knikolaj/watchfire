@@ -112,6 +112,33 @@ test("extractCodexTranscriptMeta falls back to <cwd> tag when session_meta lacks
   assert.equal(meta.cwd, "/legacy/cwd");
 });
 
+test("extractCodexTranscriptMeta picks up the latest thread_name_updated as name", async () => {
+  const dir = await tmpDir("codex-rename");
+  const fp = path.join(dir, "rollout-019d1234-5678-7abc-9def-0123456789ab.jsonl");
+  await writeJsonl(fp, [
+    { type: "session_meta", payload: { cwd: "/proj/x" } },
+    { type: "event_msg", payload: { type: "thread_name_updated",
+        thread_id: "x", thread_name: "early name" } },
+    { type: "event_msg", payload: { type: "user_message", message: "hi" } },
+    // A second rename later — must win.
+    { type: "event_msg", payload: { type: "thread_name_updated",
+        thread_id: "x", thread_name: "final name" } },
+  ]);
+  const meta = await extractCodexTranscriptMeta(fp);
+  assert.equal(meta.name, "final name");
+});
+
+test("extractCodexTranscriptMeta name is empty when never renamed", async () => {
+  const dir = await tmpDir("codex-noname");
+  const fp = path.join(dir, "rollout-019d1234-5678-7abc-9def-0123456789ab.jsonl");
+  await writeJsonl(fp, [
+    { type: "session_meta", payload: { cwd: "/p" } },
+    { type: "event_msg", payload: { type: "user_message", message: "hi" } },
+  ]);
+  const meta = await extractCodexTranscriptMeta(fp);
+  assert.equal(meta.name, "");
+});
+
 test("extractCodexTranscriptMeta UUID regex doesn't snag the timestamp prefix", async () => {
   // Filename has a long ISO timestamp before the UUID. A naive
   // [0-9a-f-]+ regex would grab "33-01-019d…" instead of just the UUID.

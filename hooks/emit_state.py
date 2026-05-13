@@ -174,6 +174,35 @@ def extract_claude_meta(transcript_path: str) -> tuple[str | None, str | None]:
     return custom_title, (first_prompt[:500] if first_prompt else None)
 
 
+def extract_codex_thread_name(transcript_path: str) -> str | None:
+    """Latest `thread_name_updated` event from a codex transcript — Codex's
+    equivalent of Claude's `/rename` customTitle. The user explicitly named
+    the session, so this should win over first_prompt fallback in the
+    widget."""
+    try:
+        with open(transcript_path, "r", encoding="utf-8") as f:
+            data = f.read()
+    except OSError:
+        return None
+    name = None
+    for line in data.splitlines():
+        if not line or line[0] != "{":
+            continue
+        if '"thread_name_updated"' not in line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        payload = obj.get("payload") or {}
+        if payload.get("type") != "thread_name_updated":
+            continue
+        n = payload.get("thread_name")
+        if isinstance(n, str) and n.strip():
+            name = n.strip()  # later occurrences overwrite — latest wins
+    return name
+
+
 def extract_codex_first_prompt(transcript_path: str) -> str | None:
     """First user prompt from a codex transcript. Codex writes two flavors of
     user messages — `response_item` (which also carries the synthetic
@@ -348,12 +377,16 @@ def main() -> int:
                 state["name"] = title
             if first and not state.get("first_prompt"):
                 state["first_prompt"] = first
-        elif args.agent == "codex" and not state.get("first_prompt"):
-            # Codex has no /rename equivalent, so we only fill first_prompt;
-            # the widget uses it as the display name when `name` is absent.
-            first = extract_codex_first_prompt(transcript_path)
-            if first:
-                state["first_prompt"] = first
+        elif args.agent == "codex":
+            # Codex names sessions via /rename (`thread_name_updated` event).
+            # Refresh on every non-light event so renames propagate quickly.
+            tname = extract_codex_thread_name(transcript_path)
+            if tname:
+                state["name"] = tname
+            if not state.get("first_prompt"):
+                first = extract_codex_first_prompt(transcript_path)
+                if first:
+                    state["first_prompt"] = first
 
     # Push session name to the terminal title via OSC 0/2. Claude's `/rename`
     # only updates the transcript's `custom-title`; it doesn't emit an OSC

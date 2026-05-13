@@ -178,9 +178,13 @@ async function readAllSessions() {
 const nameCache = new Map();   // transcriptPath -> { mtimeMs, name }
 
 async function resolveSessionName(session) {
-  // Claude transcripts carry user-set names via /rename. Codex transcripts
-  // don't have an analogous concept (as of CLI 0.117), so for codex we just
-  // fall through to the last_prompt fallback below.
+  // An explicit name already on the state file is user intent — never
+  // overwrite. The hook records customTitle (claude /rename) and
+  // thread_name (codex /rename) here.
+  if (session.name) return session.name;
+
+  // For Claude only: also re-scan the transcript directly, in case the
+  // state file is stale (e.g. /rename'd right after a hook event).
   const tp = session.transcript_path;
   if (tp && session.agent !== "codex") {
     let stat;
