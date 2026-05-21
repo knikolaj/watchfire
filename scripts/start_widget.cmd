@@ -1,5 +1,5 @@
 @echo off
-:: Launch the Orchestrator widget window.
+:: Launch the Watchfire widget window.
 :: Assumes the local server is already running (npm start in server/).
 :: Double-click in Explorer or run from cmd.
 

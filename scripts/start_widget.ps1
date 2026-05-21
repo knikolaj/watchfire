@@ -20,7 +20,7 @@ param(
     [int]   $Height   = 480,
     [int]   $X        = -1,   # -1 = "let Windows decide"
     [int]   $Y        = -1,
-    [int]   $Sessions = 0     # session count from orch CLI; drives auto-height
+    [int]   $Sessions = 0     # session count from watchfire CLI; drives auto-height
 )
 
 # If caller didn't override $Height, scale it to fit the session count so the

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Hook for Claude Code & Codex CLI: emit per-session state to
-~/.claude/orchestrator/sessions/<session_id>.json
+~/.watchfire/sessions/<session_id>.json
 
 Reads hook payload from stdin, merges into existing state file, writes atomically.
 
@@ -60,7 +60,7 @@ def find_agent_pid() -> int:
     """Walk up the process tree from our parent until we hit the claude/codex
     CLI. The hook is spawned via `sh -c "/path/emit_state.py …"`, so
     `os.getppid()` returns the (very short-lived) shell. Recording that PID
-    means the orchestrator's pid-liveness sweep deletes the session a few
+    means watchfire's pid-liveness sweep deletes the session a few
     seconds later. We instead want the agent CLI's PID — Node sets
     PR_SET_NAME so /proc/<pid>/comm is literally "claude" or "codex"."""
     pid = os.getppid()
@@ -339,7 +339,7 @@ def main() -> int:
     state["last_event_at"] = time.time()
     state.setdefault("started_at", time.time())
     # Record the PID of the agent CLI itself (NOT os.getppid() — that
-    # returns the sh-wrapper, which dies immediately). The orchestrator
+    # returns the sh-wrapper, which dies immediately). The watchfire server
     # server uses this to garbage-collect state for sessions whose terminal
     # was closed without firing Stop.
     state["pid"] = find_agent_pid()
@@ -393,7 +393,7 @@ def main() -> int:
     # escape, so Windows Terminal tabs keep showing the bash default
     # ("user@host: cwd") and multiple sessions in the same cwd are
     # indistinguishable. Writing here gives each tab a unique title that the
-    # orchestrator's focus_window.ps1 can match. Skipped for LIGHT_EVENTS
+    # watchfire's focus_window.ps1 can match. Skipped for LIGHT_EVENTS
     # because /dev/tty writes show up as visible noise in some terminals if
     # done dozens of times per turn.
     if event not in LIGHT_EVENTS:

@@ -189,18 +189,18 @@ Phaser scene served at `/`.
 
 ---
 
-## C. CLI (`~/.local/bin/wf`, alias `orch` symlink)
+## C. CLI (`~/.local/bin/watchfire` (with `wf` / `orch` symlinks))
 
 | ID | Trigger | Expected | Test |
 |---|---|---|---|
-| C01 | `wf` (no args) | Equivalent to `wf widget`. | unit (shell) |
-| C02 | `wf widget` | Ensures server is up, launches Edge `--app` widget pointing at `/widget.html`. | manual |
-| C03 | `wf map` | Ensures server is up, opens `/` in default browser. | manual |
-| C04 | `wf server` | Starts Node server, writes pid to `~/.watchfire/server.pid`, log to `server.log`. | unit (shell) |
-| C05 | `wf stop` | Stops server, removes pid file. | unit (shell) |
-| C06 | `wf status` | Prints PID + URL when running, `not running` otherwise. | unit (shell) |
-| C07 | `wf logs` | Tails `server.log`. | manual |
-| C08 | `orch <args>` | Same as `wf <args>` (symlink). | unit (shell) |
+| C01 | `watchfire` (no args) | Equivalent to `watchfire widget`. | unit (shell) |
+| C02 | `watchfire widget` | Ensures server is up, launches Edge `--app` widget pointing at `/widget.html`. | manual |
+| C03 | `watchfire map` | Ensures server is up, opens `/` in default browser. | manual |
+| C04 | `watchfire server` | Starts Node server, writes pid to `~/.watchfire/server.pid`, log to `server.log`. | unit (shell) |
+| C05 | `watchfire stop` | Stops server, removes pid file. | unit (shell) |
+| C06 | `watchfire status` | Prints PID + URL when running, `not running` otherwise. | unit (shell) |
+| C07 | `watchfire logs` | Tails `server.log`. | manual |
+| C08 | `wf <args>` / `orch <args>` | Same as `watchfire <args>` (symlink). | unit (shell) |
 
 ---
 

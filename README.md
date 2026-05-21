@@ -62,7 +62,7 @@ cd server && npm install
 # 3. Wire Codex hooks: copy docs/install/codex-hooks.json to ~/.codex/hooks.json
 #    (or merge if you already have one).
 
-# 4. Drop ./bin/wf onto your PATH (or symlink it).
+# 4. Drop ./bin/watchfire onto your PATH (or symlink it).
 ```
 
 **Heads up if you ever rename or move the project dir** — both the Claude
@@ -73,13 +73,16 @@ silently no-op and you'll lose those sessions from the widget.
 ## Usage
 
 ```
-wf widget    # launch the always-on-top widget (default)
-wf map       # open the iso map in the default browser
-wf server    # start the Node server (wf widget does this implicitly)
-wf stop      # stop the server
-wf status    # is anything listening on :4173?
-wf logs      # tail server stdout
+watchfire widget    # launch the always-on-top widget (default)
+watchfire map       # open the iso map in the default browser
+watchfire server    # start the Node server (watchfire widget does this implicitly)
+watchfire stop      # stop the server
+watchfire status    # is anything listening on :4173?
+watchfire logs      # tail server stdout
+watchfire test      # run pytest + node:test suites
 ```
+
+`wf` and `orch` are kept as symlinks for muscle memory.
 
 Click a row in the widget → the corresponding Windows Terminal tab gets
 focus. Hover the watchtower in the iso map → see every chat the directory
