@@ -82,8 +82,6 @@ watchfire logs      # tail server stdout
 watchfire test      # run pytest + node:test suites
 ```
 
-`wf` and `orch` are kept as symlinks for muscle memory.
-
 Click a row in the widget → the corresponding Windows Terminal tab gets
 focus. Hover the watchtower in the iso map → see every chat the directory
 has ever hosted, active and archived (read from `~/.claude/projects/<dir>/`).
