@@ -44,7 +44,11 @@ LIGHT_EVENTS = {"PreToolUse", "PostToolUse"}
 # carry the limit itself, e.g. Claude). Codex transcripts include
 # `model_context_window` directly so this fallback isn't consulted there.
 MODEL_LIMITS = {
-    # Claude 4.6+ moved to 1M context; older 4.x and Haiku stay at 200K.
+    # Claude 4.6+ and the Claude 5 family are 1M context; older 4.x and Haiku
+    # stay at 200K.
+    "claude-fable-5":    1_000_000,
+    "claude-sonnet-5":   1_000_000,
+    "claude-opus-4-8":   1_000_000,
     "claude-opus-4-7":   1_000_000,
     "claude-opus-4-6":   1_000_000,
     "claude-sonnet-4-6": 1_000_000,

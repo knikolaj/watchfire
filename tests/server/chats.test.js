@@ -231,12 +231,17 @@ test("listChatsForCwd returns [] for empty cwd", async () => {
 // --- Context % extraction -------------------------------------------------
 
 test("modelLimit picks the longest matching prefix", () => {
+  assert.equal(modelLimit("claude-fable-5"),      1_000_000);
+  assert.equal(modelLimit("claude-sonnet-5"),     1_000_000);
+  assert.equal(modelLimit("claude-opus-4-8"),     1_000_000);
   assert.equal(modelLimit("claude-opus-4-7"),     1_000_000);
   assert.equal(modelLimit("claude-opus-4-7[1m]"), 1_000_000);
   assert.equal(modelLimit("claude-opus-4-6"),     1_000_000);
   assert.equal(modelLimit("claude-sonnet-4-6"),   1_000_000);
   assert.equal(modelLimit("claude-haiku-4-5"),      200_000);
   assert.equal(modelLimit("claude-opus-4-1"),       200_000);
+  // Sonnet 5 must not fall through the claude-sonnet-4 prefix to 200K.
+  assert.equal(modelLimit("claude-sonnet-4-5"),     200_000);
   assert.equal(modelLimit("gpt-5"),                 400_000);
   assert.equal(modelLimit(""),                      200_000);
   assert.equal(modelLimit("unknown"),               200_000);
