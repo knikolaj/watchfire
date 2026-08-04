@@ -232,6 +232,7 @@ test("listChatsForCwd returns [] for empty cwd", async () => {
 
 test("modelLimit picks the longest matching prefix", () => {
   assert.equal(modelLimit("claude-fable-5"),      1_000_000);
+  assert.equal(modelLimit("claude-opus-5"),       1_000_000);
   assert.equal(modelLimit("claude-sonnet-5"),     1_000_000);
   assert.equal(modelLimit("claude-opus-4-8"),     1_000_000);
   assert.equal(modelLimit("claude-opus-4-7"),     1_000_000);
