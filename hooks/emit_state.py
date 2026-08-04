@@ -47,6 +47,7 @@ MODEL_LIMITS = {
     # Claude 4.6+ and the Claude 5 family are 1M context; older 4.x and Haiku
     # stay at 200K.
     "claude-fable-5":    1_000_000,
+    "claude-opus-5":     1_000_000,
     "claude-sonnet-5":   1_000_000,
     "claude-opus-4-8":   1_000_000,
     "claude-opus-4-7":   1_000_000,

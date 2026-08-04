@@ -66,6 +66,7 @@ def test_wsl_non_drive_cwd_is_left_alone(run_hook):
 def test_model_limit_known_models():
     import emit_state
     assert emit_state.model_limit("claude-fable-5") == 1_000_000
+    assert emit_state.model_limit("claude-opus-5") == 1_000_000
     assert emit_state.model_limit("claude-sonnet-5") == 1_000_000
     assert emit_state.model_limit("claude-opus-4-8") == 1_000_000
     assert emit_state.model_limit("claude-opus-4-7") == 1_000_000
@@ -79,6 +80,9 @@ def test_model_limit_known_models():
     # Sonnet 5 must NOT be captured by the claude-sonnet-4 prefix (would wrongly
     # give 200K); the 1M sonnet-5 entry wins on exact prefix.
     assert emit_state.model_limit("claude-sonnet-5") == 1_000_000
+    # Opus 5 must NOT be captured by the claude-opus-4 prefix — this was the
+    # widget's "146% [200K]" bug before claude-opus-5 was added.
+    assert emit_state.model_limit("claude-opus-5") == 1_000_000
     assert emit_state.model_limit("gpt-5") == 400_000
 
 

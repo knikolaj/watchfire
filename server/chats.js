@@ -27,6 +27,7 @@ export const CODEX_INDEX_TTL_MS = 30_000;
 // claude-opus-4-7 wins over claude-opus-4.
 const MODEL_LIMITS = {
   "claude-fable-5":    1_000_000,
+  "claude-opus-5":     1_000_000,
   "claude-sonnet-5":   1_000_000,
   "claude-opus-4-8":   1_000_000,
   "claude-opus-4-7":   1_000_000,
