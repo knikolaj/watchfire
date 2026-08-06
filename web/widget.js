@@ -368,17 +368,23 @@ connectWS({
     chatsCache.clear();
     for (const s of list) sessions.set(s.session_id, s);
     render();
+    renderHistory();   // liveIds membership reset — refresh the live/dead dots
   },
   onUpsert: (s) => {
+    // Only a change in *which* sessions are live flips a History dot; a plain
+    // status update of an existing session doesn't, so skip the re-render then.
+    const isNew = !sessions.has(s.session_id);
     sessions.set(s.session_id, s);
     invalidateChats(s.cwd || "(unknown)");
     render();
+    if (isNew) renderHistory();
   },
   onRemove: (id) => {
     const old = sessions.get(id);
     sessions.delete(id);
     if (old) invalidateChats(old.cwd || "(unknown)");
     render();
+    renderHistory();   // a chat died → flip its History dot to the ↻ resume icon
   },
 });
 
