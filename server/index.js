@@ -36,6 +36,7 @@ const MIME = {
 // --- Static file server + JSON endpoints -----------------------------------
 
 const FOCUS_SCRIPT = path.join(__dirname, "focus_window.ps1");
+const RESUME_SCRIPT = path.join(__dirname, "..", "scripts", "resume_session.sh");
 
 function focusWindowsTerminal(tabName) {
   return new Promise((resolve) => {
@@ -46,6 +47,31 @@ function focusWindowsTerminal(tabName) {
     ps.stdout.on("data", (d) => { out += d.toString(); });
     ps.on("error", () => resolve({ ok: false, err: "spawn_failed" }));
     ps.on("close", (code) => resolve({ ok: code === 0, out: out.trim(), code }));
+  });
+}
+
+// Re-open a past session in a fresh Windows Terminal tab: wt launches a WSL
+// login shell that runs resume_session.sh, which cd's to the session's cwd and
+// exec's `claude --resume <id>` / `codex resume <id>`. agent/cwd/id go through
+// as positional args — the only multi-word token wt sees is the fixed
+// `exec "$0" "$@"`, so paths/ids are never re-parsed by a shell (injection-safe).
+function resumeSession({ agent, cwd, sessionId, name }) {
+  return new Promise((resolve) => {
+    // wt drops quoting around sub-command args, so a value with spaces (a cwd
+    // like "C:\Users\John Doe", a session name like "Fable Health") would split
+    // into multiple args. base64 the free-text values — no spaces/quotes to
+    // mangle — and let the helper decode them.
+    const b64 = (s) => Buffer.from(String(s || ""), "utf8").toString("base64");
+    // -w last: add a tab to the most-recently-used Terminal window instead of
+    // spawning a fresh window each time (falls back to a new window if none).
+    const args = [
+      "-w", "last", "nt", "wsl.exe", "-e", "bash", "-lic",
+      'exec "$0" "$@"', RESUME_SCRIPT, agent, b64(cwd), sessionId, b64(name),
+    ];
+    const p = spawn("wt.exe", args, { stdio: "ignore", detached: true });
+    p.on("error", () => resolve({ ok: false, err: "spawn_failed" }));
+    // wt.exe is a launcher that returns immediately — a clean spawn is success.
+    p.on("spawn", () => { p.unref(); resolve({ ok: true }); });
   });
 }
 
@@ -68,6 +94,21 @@ async function handleRequest(req, res) {
     const lastCwd = body.cwd ? String(body.cwd).split("/").filter(Boolean).pop() : "";
     const tabName = body.name || lastCwd || "";
     const result = await focusWindowsTerminal(tabName);
+    res.writeHead(200, { "content-type": "application/json" });
+    return res.end(JSON.stringify(result));
+  }
+  if (req.method === "POST" && req.url === "/resume") {
+    let body = {};
+    try { body = await readBody(req); } catch {}
+    const agent = body.agent === "codex" ? "codex" : "claude";
+    const sessionId = String(body.session_id || "").trim();
+    const cwd = String(body.cwd || "").trim();
+    const name = String(body.name || "").trim();
+    if (!sessionId) {
+      res.writeHead(400, { "content-type": "application/json" });
+      return res.end(JSON.stringify({ ok: false, err: "missing session_id" }));
+    }
+    const result = await resumeSession({ agent, cwd, sessionId, name });
     res.writeHead(200, { "content-type": "application/json" });
     return res.end(JSON.stringify(result));
   }

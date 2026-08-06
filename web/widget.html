@@ -344,14 +344,13 @@
 
     .hist-row {
       display: grid;
-      grid-template-columns: 22px 1fr auto auto;
+      grid-template-columns: 22px 1fr auto auto auto;
       align-items: center;
       gap: 6px;
       padding: 3px 6px;
       margin-bottom: 2px;
       background: var(--bg-row);
       border-radius: 4px;
-      cursor: pointer;
       font-size: 11px;
     }
     .hist-row:hover { background: var(--bg-row-hover); }
@@ -365,6 +364,19 @@
       overflow: hidden; text-overflow: ellipsis;
     }
     .hist-cwd { color: var(--text-muted); font-size: 9px; }
+    /* live/dead indicator to the left of the context % — the ONLY click target
+       in a history row (click focuses a live session or resumes a closed one). */
+    .hist-status {
+      width: 16px; height: 16px; display: flex; align-items: center; justify-content: center;
+      font-size: 11px; line-height: 1; cursor: pointer; border-radius: 3px;
+    }
+    .hist-status:hover { background: var(--bg-row-hover); }
+    .hist-status.live::before {
+      content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+      background: var(--status-done); box-shadow: 0 0 4px var(--status-done);
+    }
+    .hist-status.resume { color: var(--text-dim); }
+    .hist-status.resume:hover { color: var(--text); }
     .hist-ctx { text-align: right; line-height: 1.2; min-width: 32px; }
     .hist-ctx .pct { font-size: 10px; color: var(--text); }
     .hist-ctx .pct.warn   { color: #f39c12; font-weight: bold; }

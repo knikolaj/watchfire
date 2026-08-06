@@ -236,9 +236,10 @@ function renderHistory() {
   if (historyChats === null) return;   // not loaded yet
   const sort = currentHistorySort();
   const now = Date.now() / 1000;
+  const liveIds = new Set(sessions.keys());   // which chats have a live window
   historyBodyEl.innerHTML = sort === "time"
-    ? renderHistoryByTimeHtml(historyChats, now)
-    : renderHistoryByProjectHtml(historyChats, now, { expanded: historyExpanded });
+    ? renderHistoryByTimeHtml(historyChats, now, liveIds)
+    : renderHistoryByProjectHtml(historyChats, now, { expanded: historyExpanded, liveIds });
 
   for (const h of historyBodyEl.querySelectorAll(".hist-group-header")) {
     h.addEventListener("click", () => {
@@ -247,13 +248,22 @@ function renderHistory() {
       renderHistory();
     });
   }
-  for (const row of historyBodyEl.querySelectorAll(".hist-row")) {
-    row.addEventListener("click", () => {
-      // Best-effort: if this chat happens to be currently active, focus it.
-      // For pure history entries we don't (yet) try to resume — just no-op.
+  // Only the micro-icon is clickable — a click anywhere on the row would be too
+  // easy to trigger by accident (and would spawn a terminal).
+  for (const icon of historyBodyEl.querySelectorAll(".hist-status")) {
+    icon.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const row = icon.closest(".hist-row");
+      // Live session (terminal open) → focus its tab. Closed → resume it.
       const id = row.dataset.id;
       const s = sessions.get(id);
-      if (s) focusSession(s);
+      if (s) { focusSession(s); return; }
+      resumeSession({
+        session_id: id,
+        agent: row.dataset.agent,
+        cwd: row.dataset.resumeCwd || "",
+        name: row.dataset.name || "",
+      });
     });
   }
 }
@@ -314,7 +324,18 @@ function positionTipAtRow(rowEl) {
   tooltipEl.style.top  = `${y}px`;
 }
 
-// --- Focus (delegate to existing /focus endpoint) --------------------------
+// --- Focus / Resume (delegate to server endpoints) -------------------------
+
+// Dead history entry → open a fresh Windows Terminal tab that re-opens the
+// past Claude/Codex conversation (claude --resume / codex resume).
+function resumeSession({ session_id, agent, cwd, name }) {
+  if (!session_id) return;
+  fetch("/resume", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ session_id, agent, cwd, name }),
+  }).catch(() => {});
+}
 
 function focusSession(s) {
   if (!s) return;
