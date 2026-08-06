@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -97,6 +98,48 @@ def model_limit(model: str) -> int:
         if model.startswith(key):
             return MODEL_LIMITS[key]
     return 200_000
+
+
+def model_label(model: str) -> str:
+    """Short human label for a model id, for terminal tab titles:
+    claude-opus-4-8 -> "Opus 4.8", claude-fable-5 -> "Fable 5",
+    gpt-5.5(-codex) -> "GPT-5.5". Empty for no model; unknown -> as-is."""
+    if not model:
+        return ""
+    m = re.match(r"^claude-(opus|sonnet|haiku|fable|mythos)-(\d+)(?:-(\d+))?", model)
+    if m:
+        fam = m.group(1).capitalize()
+        ver = f"{m.group(2)}.{m.group(3)}" if m.group(3) else m.group(2)
+        return f"{fam} {ver}"
+    m = re.match(r"^gpt-([0-9.]+)", model, re.IGNORECASE)
+    if m:
+        return f"GPT-{m.group(1)}"
+    return model
+
+
+def extract_codex_model(transcript_path: str) -> str | None:
+    """Latest `turn_context.model` from a codex transcript (Codex records the
+    model there, one per turn). None on any read/parse failure."""
+    try:
+        with open(transcript_path, "r", encoding="utf-8") as f:
+            data = f.read()
+    except OSError:
+        return None
+    model = None
+    for line in data.splitlines():
+        if not line or line[0] != "{":
+            continue
+        if '"turn_context"' not in line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if obj.get("type") == "turn_context":
+            m = (obj.get("payload") or {}).get("model")
+            if isinstance(m, str) and m:
+                model = m  # later occurrences overwrite — latest wins
+    return model
 
 
 def extract_claude_usage(transcript_path: str) -> tuple[int, int] | None:
@@ -388,6 +431,11 @@ def main() -> int:
             tname = extract_codex_thread_name(transcript_path)
             if tname:
                 state["name"] = tname
+            # Claude carries `model` in the hook payload (persisted below);
+            # Codex doesn't, so pull it from the transcript for the tab title.
+            cmodel = extract_codex_model(transcript_path)
+            if cmodel:
+                state["model"] = cmodel
             if not state.get("first_prompt"):
                 first = extract_codex_first_prompt(transcript_path)
                 if first:
@@ -407,6 +455,10 @@ def main() -> int:
             or (state.get("first_prompt") or "")[:30]
             or session_id[:8]
         )
+        # Append the model so every tab reads e.g. "Fable Health (Opus 4.8)".
+        label = model_label(state.get("model") or "")
+        if title and label:
+            title = f"{title} ({label})"
         if title:
             try:
                 with open("/dev/tty", "w") as tty:
