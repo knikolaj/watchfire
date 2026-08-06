@@ -108,10 +108,14 @@ async function listAllClaudeChats(opts = {}) {
       let stat;
       try { stat = await fs.stat(fp); } catch { continue; }
       const meta = await extractClaudeTranscriptMeta(fp);
-      const cwd = (meta.cwd || fallbackCwd).toLowerCase();
+      const cwdReal = meta.cwd || fallbackCwd;
+      const cwd = cwdReal.toLowerCase();
       const row = {
         session_id: f.replace(/\.jsonl$/, ""),
         cwd,
+        // True-case path for `cd` on resume — `cwd` above is lowercased for
+        // district grouping, which breaks cd on case-sensitive WSL paths.
+        cwd_real: cwdReal,
         agent: "claude",
         name: meta.name || "",
         first_prompt: meta.first_prompt || "",
@@ -132,7 +136,8 @@ async function listAllCodexChats(opts = {}) {
   const out = [];
   for (const chats of idx.values()) {
     for (const c of chats) {
-      out.push({ ...c, cwd: c.cwd.toLowerCase() });
+      // c.cwd is already true-case; keep it for resume, lowercase for grouping.
+      out.push({ ...c, cwd_real: c.cwd, cwd: c.cwd.toLowerCase() });
     }
   }
   return out;
