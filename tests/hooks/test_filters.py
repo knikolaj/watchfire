@@ -90,3 +90,16 @@ def test_model_limit_unknown_falls_back_to_200k():
     import emit_state
     assert emit_state.model_limit("") == 200_000
     assert emit_state.model_limit("totally-unknown") == 200_000
+
+
+def test_model_label():
+    import emit_state
+    assert emit_state.model_label("claude-opus-5") == "Opus 5"
+    assert emit_state.model_label("claude-opus-4-8") == "Opus 4.8"
+    assert emit_state.model_label("claude-sonnet-4-6") == "Sonnet 4.6"
+    assert emit_state.model_label("claude-fable-5") == "Fable 5"
+    assert emit_state.model_label("claude-haiku-4-5") == "Haiku 4.5"
+    assert emit_state.model_label("gpt-5.5") == "GPT-5.5"
+    assert emit_state.model_label("gpt-5.5-codex") == "GPT-5.5"
+    assert emit_state.model_label("") == ""
+    assert emit_state.model_label("some-future-model") == "some-future-model"
