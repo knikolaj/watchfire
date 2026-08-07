@@ -48,6 +48,49 @@ if (-not $Edge) {
     exit 2
 }
 
+# WinAPI helpers: force a window topmost, and un-minimize + raise it.
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public class WinTop {
+    [DllImport("user32.dll")] public static extern bool SetWindowPos(
+        IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+    public static IntPtr HWND_TOPMOST    = new IntPtr(-1);
+    public static IntPtr HWND_NOTOPMOST  = new IntPtr(-2);
+    public const uint SWP_NOMOVE         = 0x0002;
+    public const uint SWP_NOSIZE         = 0x0001;
+    public const uint SWP_NOACTIVATE     = 0x0010;
+    public const uint SWP_SHOWWINDOW     = 0x0040;
+    public const int  SW_RESTORE         = 9;
+}
+"@ | Out-Null
+
+function Set-WidgetTopmost([IntPtr]$hwnd) {
+    # Un-minimize first: a widget restored from a previous session can come back
+    # parked at -32000,-32000 (minimized), and SWP_NOMOVE|NOSIZE never shows it.
+    [void][WinTop]::ShowWindow($hwnd, [WinTop]::SW_RESTORE)
+    [void][WinTop]::SetWindowPos(
+        $hwnd, [WinTop]::HWND_TOPMOST, 0, 0, 0, 0,
+        [WinTop]::SWP_NOMOVE -bor [WinTop]::SWP_NOSIZE -bor [WinTop]::SWP_NOACTIVATE -bor [WinTop]::SWP_SHOWWINDOW)
+    [void][WinTop]::SetForegroundWindow($hwnd)
+}
+
+# Reuse an existing widget window if one is still around. Edge keeps the
+# profile's process alive after the window is closed; a fresh launch then just
+# hands off to that singleton and exits, sometimes without ever showing a
+# window (or showing it minimized) — the "nothing happens" symptom. Restoring
+# and raising the existing window is both correct and avoids a duplicate.
+$existing = Get-Process -Name "msedge" -ErrorAction SilentlyContinue |
+    Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -match "Watchfire|Orchestrator|widget" } |
+    Select-Object -First 1
+if ($existing) {
+    Set-WidgetTopmost $existing.MainWindowHandle
+    Write-Verbose ("reused existing widget hwnd=" + $existing.MainWindowHandle)
+    exit 0
+}
+
 # Dedicated profile dir so app windows don't fight with the user's regular Edge.
 $ProfileDir = Join-Path $env:LOCALAPPDATA "OrchestratorWidget\EdgeProfile"
 New-Item -ItemType Directory -Force -Path $ProfileDir | Out-Null
@@ -69,22 +112,6 @@ if (-not $proc) {
     Write-Error "Failed to start Edge."
     exit 3
 }
-
-# WinAPI: SetWindowPos with HWND_TOPMOST.
-Add-Type -TypeDefinition @"
-using System;
-using System.Runtime.InteropServices;
-public class WinTop {
-    [DllImport("user32.dll")] public static extern bool SetWindowPos(
-        IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
-    public static IntPtr HWND_TOPMOST    = new IntPtr(-1);
-    public static IntPtr HWND_NOTOPMOST  = new IntPtr(-2);
-    public const uint SWP_NOMOVE         = 0x0002;
-    public const uint SWP_NOSIZE         = 0x0001;
-    public const uint SWP_NOACTIVATE     = 0x0010;
-    public const uint SWP_SHOWWINDOW     = 0x0040;
-}
-"@ | Out-Null
 
 # msedge spawns child processes; the window we want belongs to one of them
 # (typically the first child that gains a non-zero MainWindowHandle).
@@ -118,10 +145,7 @@ if ($hwnd -eq [IntPtr]::Zero) {
     exit 0
 }
 
-[void][WinTop]::SetWindowPos(
-    $hwnd, [WinTop]::HWND_TOPMOST,
-    0, 0, 0, 0,
-    [WinTop]::SWP_NOMOVE -bor [WinTop]::SWP_NOSIZE -bor [WinTop]::SWP_NOACTIVATE -bor [WinTop]::SWP_SHOWWINDOW)
+Set-WidgetTopmost $hwnd
 
 # Taskbar icon override.
 #
