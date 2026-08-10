@@ -107,6 +107,9 @@ $EdgeArgs = @(
 )
 if ($X -ge 0 -and $Y -ge 0) { $EdgeArgs += "--window-position=$X,$Y" }
 
+# Anchor the fallback so it can never grab the user's pre-existing Edge window:
+# only msedge processes that started at/after this launch are ours.
+$launchTime = (Get-Date).AddSeconds(-1)
 $proc = Start-Process -FilePath $Edge -ArgumentList $EdgeArgs -PassThru
 if (-not $proc) {
     Write-Error "Failed to start Edge."
@@ -114,9 +117,10 @@ if (-not $proc) {
 }
 
 # msedge spawns child processes; the window we want belongs to one of them
-# (typically the first child that gains a non-zero MainWindowHandle).
-# Poll up to ~6 seconds.
-$deadline = (Get-Date).AddSeconds(6)
+# (typically the first child that gains a non-zero MainWindowHandle). A cold
+# Edge on Windows can take well over 6s to paint its first window, so poll
+# generously — otherwise always-on-top silently doesn't get applied.
+$deadline = (Get-Date).AddSeconds(15)
 $hwnd = [IntPtr]::Zero
 
 while ((Get-Date) -lt $deadline -and $hwnd -eq [IntPtr]::Zero) {
@@ -130,10 +134,11 @@ while ((Get-Date) -lt $deadline -and $hwnd -eq [IntPtr]::Zero) {
             break
         }
     }
-    # Fallback: any msedge with a window — only one --app window is starting now.
+    # Fallback: newest msedge window started by *this* launch — the title can
+    # lag behind the window handle, so a match-by-title miss shouldn't strand us.
     if ($hwnd -eq [IntPtr]::Zero) {
         $any = Get-Process -Name "msedge" -ErrorAction SilentlyContinue |
-               Where-Object { $_.MainWindowHandle -ne 0 } |
+               Where-Object { $_.MainWindowHandle -ne 0 -and $_.StartTime -ge $launchTime } |
                Sort-Object StartTime -Descending |
                Select-Object -First 1
         if ($any) { $hwnd = $any.MainWindowHandle }
@@ -141,7 +146,7 @@ while ((Get-Date) -lt $deadline -and $hwnd -eq [IntPtr]::Zero) {
 }
 
 if ($hwnd -eq [IntPtr]::Zero) {
-    Write-Warning "Could not find widget window for always-on-top; window opened normally."
+    Write-Verbose "Could not find widget window for always-on-top; window opened normally."
     exit 0
 }
 
