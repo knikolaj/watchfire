@@ -117,6 +117,23 @@ def model_label(model: str) -> str:
     return model
 
 
+def terminal_title(base: str, model: str, status: str) -> str:
+    """Compose the OSC terminal-tab title.
+
+    Base name, then the model in parens ("Health (Opus 4.8)"), then — only
+    while `working` — a leading yellow dot ("🟡 Health (Opus 4.8)"). Every
+    other status means the session wants your attention, so we leave those
+    clean: the *absence* of the dot is itself the "your turn" signal.
+    """
+    title = base or ""
+    label = model_label(model or "")
+    if title and label:
+        title = f"{title} ({label})"
+    if title and status == "working":
+        title = f"🟡 {title}"
+    return title
+
+
 def extract_codex_model(transcript_path: str) -> str | None:
     """Latest `turn_context.model` from a codex transcript (Codex records the
     model there, one per turn). None on any read/parse failure."""
@@ -450,15 +467,13 @@ def main() -> int:
     # because /dev/tty writes show up as visible noise in some terminals if
     # done dozens of times per turn.
     if event not in LIGHT_EVENTS:
-        title = (
+        base = (
             state.get("name")
             or (state.get("first_prompt") or "")[:30]
             or session_id[:8]
         )
-        # Append the model so every tab reads e.g. "Fable Health (Opus 4.8)".
-        label = model_label(state.get("model") or "")
-        if title and label:
-            title = f"{title} ({label})"
+        # e.g. "Fable Health (Opus 4.8)", prefixed with 🟡 while working.
+        title = terminal_title(base, state.get("model") or "", state.get("status") or "")
         if title:
             try:
                 with open("/dev/tty", "w") as tty:

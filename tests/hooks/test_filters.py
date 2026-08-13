@@ -103,3 +103,17 @@ def test_model_label():
     assert emit_state.model_label("gpt-5.5-codex") == "GPT-5.5"
     assert emit_state.model_label("") == ""
     assert emit_state.model_label("some-future-model") == "some-future-model"
+
+
+def test_terminal_title():
+    import emit_state
+    # A yellow dot marks working; every other status stays clean.
+    assert emit_state.terminal_title("Health", "claude-opus-4-8", "working") == "🟡 Health (Opus 4.8)"
+    assert emit_state.terminal_title("Health", "claude-opus-4-8", "idle") == "Health (Opus 4.8)"
+    assert emit_state.terminal_title("Health", "claude-opus-4-8", "done") == "Health (Opus 4.8)"
+    assert emit_state.terminal_title("Health", "claude-opus-4-8", "waiting_input") == "Health (Opus 4.8)"
+    # No model -> no parens; dot still applies while working.
+    assert emit_state.terminal_title("Health", "", "working") == "🟡 Health"
+    assert emit_state.terminal_title("Health", "", "idle") == "Health"
+    # Empty base -> empty title (nothing to write), regardless of status.
+    assert emit_state.terminal_title("", "claude-opus-4-8", "working") == ""
