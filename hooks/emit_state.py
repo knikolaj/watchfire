@@ -134,6 +134,33 @@ def terminal_title(base: str, model: str, status: str) -> str:
     return title
 
 
+def extract_claude_model(transcript_path: str) -> str | None:
+    """Latest assistant `message.model` from a claude transcript.
+
+    Claude Code does not *reliably* put `model` in the hook payload — some
+    sessions never carry it — so the transcript is the authoritative source
+    (every assistant message records the model it ran on). Walk from the end
+    and take the first one. None on any read/parse failure.
+    """
+    try:
+        with open(transcript_path, "r", encoding="utf-8") as f:
+            data = f.read()
+    except OSError:
+        return None
+    for line in reversed(data.splitlines()):
+        if not line or line[0] != "{" or '"model"' not in line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        msg = obj.get("message") or {}
+        model = msg.get("model") if isinstance(msg, dict) else None
+        if model:
+            return model
+    return None
+
+
 def extract_codex_model(transcript_path: str) -> str | None:
     """Latest `turn_context.model` from a codex transcript (Codex records the
     model there, one per turn). None on any read/parse failure."""
@@ -437,6 +464,12 @@ def main() -> int:
             state["context_tokens"], state["context_limit"] = usage
 
         if args.agent == "claude":
+            # Authoritative model from the transcript (the hook payload's
+            # `model` is unreliable — some sessions never carry it, which left
+            # them with no model for the tab label and limit calc).
+            cmodel = extract_claude_model(transcript_path)
+            if cmodel:
+                state["model"] = cmodel
             title, first = extract_claude_meta(transcript_path)
             if title:
                 state["name"] = title
@@ -448,8 +481,8 @@ def main() -> int:
             tname = extract_codex_thread_name(transcript_path)
             if tname:
                 state["name"] = tname
-            # Claude carries `model` in the hook payload (persisted below);
-            # Codex doesn't, so pull it from the transcript for the tab title.
+            # Like Claude above, pull the model from the transcript (Codex
+            # records it in turn_context, one per turn) for the tab label.
             cmodel = extract_codex_model(transcript_path)
             if cmodel:
                 state["model"] = cmodel

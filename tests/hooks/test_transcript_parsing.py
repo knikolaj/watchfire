@@ -53,6 +53,39 @@ def test_extract_claude_usage_uses_last_assistant_turn(tmp_path):
     assert limit == 1_000_000          # claude-opus-4-7 → 1M
 
 
+CLAUDE_MODEL_SWITCH = _claude_transcript(
+    json.dumps({"type": "assistant", "message": {
+        "model": "claude-sonnet-4-6", "usage": {"input_tokens": 1}}}),
+    json.dumps({"type": "user", "message": {"content": "switch model"}}),
+    json.dumps({"type": "assistant", "message": {
+        "model": "claude-opus-4-8", "usage": {"input_tokens": 2}}}),
+)
+
+
+def test_extract_claude_model_returns_latest(tmp_path):
+    """The transcript is the authoritative model source (the hook payload's
+    `model` is unreliable). The most recent assistant turn wins, so a mid-
+    session model switch is reflected."""
+    import emit_state
+    fp = tmp_path / "t.jsonl"
+    fp.write_text(CLAUDE_MODEL_SWITCH)
+    assert emit_state.extract_claude_model(str(fp)) == "claude-opus-4-8"
+
+
+def test_extract_claude_model_none_when_absent(tmp_path):
+    import emit_state
+    fp = tmp_path / "t.jsonl"
+    fp.write_text(_claude_transcript(
+        json.dumps({"type": "user", "message": {"content": "no assistant yet"}}),
+    ))
+    assert emit_state.extract_claude_model(str(fp)) is None
+
+
+def test_extract_claude_model_missing_file(tmp_path):
+    import emit_state
+    assert emit_state.extract_claude_model(str(tmp_path / "nope.jsonl")) is None
+
+
 def test_extract_claude_meta_returns_custom_title_and_first_prompt(tmp_path):
     import emit_state
     fp = tmp_path / "t.jsonl"
@@ -144,6 +177,7 @@ def test_pre_tool_use_does_not_re_parse_transcript(run_hook, tmp_path):
     # Heavy fields must be absent — they're populated only on non-LIGHT events.
     assert "context_tokens" not in s
     assert "first_prompt" not in s
+    assert "model" not in s
 
 
 def test_user_prompt_submit_does_re_parse_transcript(run_hook, tmp_path):
@@ -160,3 +194,6 @@ def test_user_prompt_submit_does_re_parse_transcript(run_hook, tmp_path):
     assert s["context_limit"] == 1_000_000
     assert s["name"] == "Renamed by /rename"
     assert s["first_prompt"] == "first user prompt"
+    # Model comes from the transcript even though the payload carried none —
+    # this is the SmartHome/ReloScore "model=None" bug fix.
+    assert s["model"] == "claude-opus-4-7"
