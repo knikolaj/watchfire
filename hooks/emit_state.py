@@ -90,6 +90,29 @@ def find_agent_pid() -> int:
     return os.getppid()
 
 
+def agent_tty(pid) -> str | None:
+    """Resolve the terminal device the agent CLI (pid) is attached to.
+
+    The hook runs without a controlling terminal, so /dev/tty is unusable
+    (ENXIO). The agent CLI, however, still has the terminal on its stdio, so
+    follow one of its fds to the pts and return that path. Only real terminal
+    devices are accepted — a redirected fd (log file, pipe) is skipped so we
+    never spray OSC escapes into a file. None if nothing usable is found.
+    """
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return None
+    for fd in (0, 1, 2):
+        try:
+            dev = os.readlink(f"/proc/{pid}/fd/{fd}")
+        except OSError:
+            continue
+        if dev.startswith("/dev/pts/") or (dev.startswith("/dev/tty") and dev != "/dev/tty"):
+            return dev
+    return None
+
+
 def model_limit(model: str) -> int:
     if not model:
         return 200_000
@@ -514,12 +537,18 @@ def main() -> int:
     # e.g. "Fable Health (Opus 4.8)", prefixed with 🟡 while working.
     title = terminal_title(base, state.get("model") or "", state.get("status") or "")
     if title and title != state.get("_tab_title"):
+        # NB: NOT /dev/tty. The hook is spawned without a controlling terminal,
+        # so opening /dev/tty fails with ENXIO and the OSC escape never reaches
+        # the tab. Write to the agent CLI's own terminal device instead (found
+        # by following its stdio in /proc). Falls back to /dev/tty for the rare
+        # case where we're already interactive (e.g. manual testing).
+        tty_path = agent_tty(state.get("pid")) or "/dev/tty"
         try:
-            with open("/dev/tty", "w") as tty:
+            with open(tty_path, "w") as tty:
                 tty.write(f"\033]0;{title}\007")
             state["_tab_title"] = title
         except OSError:
-            pass  # no controlling tty (cron/headless invocation)
+            pass  # terminal already gone, or a headless invocation
 
     # Atomic write
     tmp = state_file.with_suffix(".json.tmp")

@@ -105,6 +105,31 @@ def test_model_label():
     assert emit_state.model_label("some-future-model") == "some-future-model"
 
 
+def test_agent_tty_picks_pts(monkeypatch):
+    import os, emit_state
+    monkeypatch.setattr(os, "readlink", lambda p: "/dev/pts/5")
+    assert emit_state.agent_tty(123) == "/dev/pts/5"
+
+
+def test_agent_tty_rejects_non_tty(monkeypatch):
+    """A redirected fd (log file / pipe) must be skipped — we never spray OSC
+    escapes into a file. /dev/tty itself is rejected too (we want the concrete
+    pts, and opening /dev/tty from the hook fails with ENXIO anyway)."""
+    import os, emit_state
+    monkeypatch.setattr(os, "readlink", lambda p: "/home/nj/session.log")
+    assert emit_state.agent_tty(123) is None
+    monkeypatch.setattr(os, "readlink", lambda p: "/dev/tty")
+    assert emit_state.agent_tty(123) is None
+
+
+def test_agent_tty_bad_pid():
+    import emit_state
+    assert emit_state.agent_tty(None) is None
+    assert emit_state.agent_tty("not-an-int") is None
+    # A pid with no /proc entry resolves to nothing, not a crash.
+    assert emit_state.agent_tty(2_147_483_646) is None
+
+
 def test_terminal_title():
     import emit_state
     # A yellow dot marks working; every other status stays clean.
