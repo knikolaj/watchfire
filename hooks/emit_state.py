@@ -496,23 +496,30 @@ def main() -> int:
     # escape, so Windows Terminal tabs keep showing the bash default
     # ("user@host: cwd") and multiple sessions in the same cwd are
     # indistinguishable. Writing here gives each tab a unique title that the
-    # watchfire's focus_window.ps1 can match. Skipped for LIGHT_EVENTS
-    # because /dev/tty writes show up as visible noise in some terminals if
-    # done dozens of times per turn.
-    if event not in LIGHT_EVENTS:
-        base = (
-            state.get("name")
-            or (state.get("first_prompt") or "")[:30]
-            or session_id[:8]
-        )
-        # e.g. "Fable Health (Opus 4.8)", prefixed with 🟡 while working.
-        title = terminal_title(base, state.get("model") or "", state.get("status") or "")
-        if title:
-            try:
-                with open("/dev/tty", "w") as tty:
-                    tty.write(f"\033]0;{title}\007")
-            except OSError:
-                pass  # no controlling tty (cron/headless invocation)
+    # watchfire's focus_window.ps1 can match.
+    #
+    # Recomputed on EVERY event — including LIGHT_EVENTS — because the 🟡
+    # working dot tracks `status`, which flips to "working" on a PreToolUse
+    # (a light event). If we only wrote on non-light events, a mid-turn
+    # Notification would strip the dot and the next PreToolUse wouldn't put it
+    # back. We still touch /dev/tty only when the title actually changes
+    # (tracked in `_tab_title`), so it's a handful of writes per turn — not the
+    # dozens (visible as noise in some terminals) the LIGHT_EVENTS skip
+    # originally guarded against.
+    base = (
+        state.get("name")
+        or (state.get("first_prompt") or "")[:30]
+        or session_id[:8]
+    )
+    # e.g. "Fable Health (Opus 4.8)", prefixed with 🟡 while working.
+    title = terminal_title(base, state.get("model") or "", state.get("status") or "")
+    if title and title != state.get("_tab_title"):
+        try:
+            with open("/dev/tty", "w") as tty:
+                tty.write(f"\033]0;{title}\007")
+            state["_tab_title"] = title
+        except OSError:
+            pass  # no controlling tty (cron/headless invocation)
 
     # Atomic write
     tmp = state_file.with_suffix(".json.tmp")
