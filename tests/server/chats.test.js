@@ -128,6 +128,25 @@ test("extractCodexTranscriptMeta picks up the latest thread_name_updated as name
   assert.equal(meta.name, "final name");
 });
 
+test("extractCodexTranscriptMeta prefers the session_index.jsonl name (Codex >= 0.147)", async () => {
+  // Newer Codex records renames in <codexHome>/session_index.jsonl, NOT as an
+  // in-transcript thread_name_updated event — so the transcript has no name.
+  const dir = await tmpDir("codex-index");
+  const sid = "019d1234-5678-7abc-9def-0123456789ab";
+  const fp = path.join(dir, `rollout-2026-08-20T00-00-00-${sid}.jsonl`);
+  await writeJsonl(fp, [
+    { type: "session_meta", payload: { cwd: "/proj/x" } },
+    { type: "event_msg", payload: { type: "user_message", message: "hi" } },
+  ]);
+  await writeJsonl(path.join(dir, "session_index.jsonl"), [
+    { id: sid, thread_name: "early", updated_at: "1" },
+    { id: "someone-else", thread_name: "nope" },
+    { id: sid, thread_name: "GPT5.5 Troubles", updated_at: "2" }, // last match wins
+  ]);
+  const meta = await extractCodexTranscriptMeta(fp);
+  assert.equal(meta.name, "GPT5.5 Troubles");
+});
+
 test("extractCodexTranscriptMeta name is empty when never renamed", async () => {
   const dir = await tmpDir("codex-noname");
   const fp = path.join(dir, "rollout-019d1234-5678-7abc-9def-0123456789ab.jsonl");

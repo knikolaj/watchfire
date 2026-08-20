@@ -159,6 +159,45 @@ def test_extract_codex_usage_pulls_last_token_usage(tmp_path):
     assert limit == 258400
 
 
+CODEX_SID = "01a01be2-bd52-7a43-94bb-7d49996f5203"
+
+
+def _codex_rollout(tmp_path):
+    # Filename must carry the UUID — that's how the session id is recovered.
+    fp = tmp_path / f"rollout-2026-08-20T01-17-19-{CODEX_SID}.jsonl"
+    fp.write_text(json.dumps(
+        {"type": "session_meta", "payload": {"cwd": "/proj/x"}}) + "\n")
+    return fp
+
+
+def test_extract_codex_thread_name_from_index(tmp_path, monkeypatch):
+    """Codex >= ~0.147 records renames in session_index.jsonl, not in the
+    transcript. The last matching line wins."""
+    import emit_state
+    codex = tmp_path / ".codex"
+    codex.mkdir()
+    (codex / "session_index.jsonl").write_text(
+        json.dumps({"id": CODEX_SID, "thread_name": "early"}) + "\n"
+        + json.dumps({"id": "someone-else", "thread_name": "nope"}) + "\n"
+        + json.dumps({"id": CODEX_SID, "thread_name": "GPT5.5 Troubles"}) + "\n"
+    )
+    monkeypatch.setenv("CODEX_HOME", str(codex))
+    assert emit_state.extract_codex_thread_name(str(_codex_rollout(tmp_path))) == "GPT5.5 Troubles"
+
+
+def test_extract_codex_thread_name_falls_back_to_transcript(tmp_path, monkeypatch):
+    """No index entry → fall back to the old in-transcript thread_name_updated."""
+    import emit_state
+    codex = tmp_path / ".codex"
+    codex.mkdir()
+    (codex / "session_index.jsonl").write_text("")  # present but empty
+    monkeypatch.setenv("CODEX_HOME", str(codex))
+    fp = tmp_path / f"rollout-2026-05-13T18-55-25-{CODEX_SID}.jsonl"
+    fp.write_text(json.dumps({"type": "event_msg", "payload": {
+        "type": "thread_name_updated", "thread_name": "CGM"}}) + "\n")
+    assert emit_state.extract_codex_thread_name(str(fp)) == "CGM"
+
+
 # --- LIGHT_EVENTS guard ---------------------------------------------------
 
 def test_pre_tool_use_does_not_re_parse_transcript(run_hook, tmp_path):
