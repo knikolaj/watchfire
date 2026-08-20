@@ -289,11 +289,58 @@ def extract_claude_meta(transcript_path: str) -> tuple[str | None, str | None]:
     return custom_title, (first_prompt[:500] if first_prompt else None)
 
 
+def _codex_session_id(transcript_path: str) -> str | None:
+    """The session UUID — the last 36 chars of a rollout filename
+    (rollout-<timestamp>-<uuid>.jsonl). None if it doesn't look like a UUID."""
+    stem = os.path.basename(transcript_path)
+    if stem.endswith(".jsonl"):
+        stem = stem[:-6]
+    sid = stem[-36:]
+    if len(sid) == 36 and sid[8] == sid[13] == sid[18] == sid[23] == "-":
+        return sid
+    return None
+
+
+def codex_index_name(transcript_path: str) -> str | None:
+    """Thread name from ~/.codex/session_index.jsonl. Codex >= ~0.147 records
+    renames there (keyed by session id), not as in-transcript
+    `thread_name_updated` events. Append log — the last matching line wins."""
+    sid = _codex_session_id(transcript_path)
+    if not sid:
+        return None
+    home = os.environ.get("CODEX_HOME") or os.path.join(os.path.expanduser("~"), ".codex")
+    try:
+        with open(os.path.join(home, "session_index.jsonl"), "r", encoding="utf-8") as f:
+            data = f.read()
+    except OSError:
+        return None
+    name = None
+    for line in data.splitlines():
+        line = line.strip()
+        if not line or line[0] != "{" or sid not in line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if obj.get("id") == sid:
+            n = obj.get("thread_name")
+            if isinstance(n, str) and n.strip():
+                name = n.strip()  # later lines win
+    return name
+
+
 def extract_codex_thread_name(transcript_path: str) -> str | None:
-    """Latest `thread_name_updated` event from a codex transcript — Codex's
-    equivalent of Claude's `/rename` customTitle. The user explicitly named
-    the session, so this should win over first_prompt fallback in the
-    widget."""
+    """The session's user-chosen name — Codex's equivalent of Claude's
+    `/rename` customTitle, which should win over the first_prompt fallback.
+
+    Codex >= ~0.147 records renames in the central session_index.jsonl; older
+    versions wrote in-transcript `thread_name_updated` events. Prefer the index
+    (it carries both old and new sessions), fall back to the transcript scan.
+    """
+    name = codex_index_name(transcript_path)
+    if name:
+        return name
     try:
         with open(transcript_path, "r", encoding="utf-8") as f:
             data = f.read()

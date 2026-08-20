@@ -267,6 +267,40 @@ export async function extractClaudeTranscriptMeta(filePath) {
   return out;
 }
 
+// Thread name from <codexHome>/session_index.jsonl. Codex >= ~0.147 records
+// renames there (keyed by session id) instead of as in-transcript
+// thread_name_updated events. We don't know codexHome here, so walk up from
+// the rollout file until we find the index (in prod it's 4 levels up, at
+// ~/.codex/; a tmp test dir can drop it right beside the rollout). Append log,
+// so the last matching line wins. "" if no index or no match.
+async function codexIndexName(session_id, filePath) {
+  let dir = path.dirname(path.resolve(filePath));
+  for (let i = 0; i < 8; i++) {
+    let data;
+    try {
+      data = await fs.readFile(path.join(dir, "session_index.jsonl"), "utf-8");
+    } catch {
+      const parent = path.dirname(dir);
+      if (parent === dir) break;   // hit filesystem root
+      dir = parent;
+      continue;
+    }
+    let name = "";
+    for (const line of data.split("\n")) {
+      const s = line.trim();
+      if (!s || s[0] !== "{" || !s.includes(session_id)) continue;
+      try {
+        const o = JSON.parse(s);
+        if (o.id === session_id && o.thread_name && String(o.thread_name).trim()) {
+          name = String(o.thread_name).trim();
+        }
+      } catch {}
+    }
+    return name;
+  }
+  return "";
+}
+
 export async function extractCodexTranscriptMeta(filePath) {
   // session_id from filename: rollout-…-<UUID>.jsonl. Anchor to UUID
   // format so greedy [0-9a-f-]+ doesn't snag the timestamp prefix
@@ -337,11 +371,12 @@ export async function extractCodexTranscriptMeta(filePath) {
     stream.destroy();
   }
   if (!cwd) return null;
+  const indexName = await codexIndexName(session_id, filePath);
   const out = {
     session_id,
     cwd,
     agent: "codex",
-    name: threadName,
+    name: indexName || threadName,
     first_prompt: firstPrompt.slice(0, 200),
     last_modified: stat.mtimeMs,
   };
