@@ -18,7 +18,7 @@ param(
     [string]$Url      = "http://localhost:4173/widget.html",
     [int]   $Width    = 320,
     [int]   $Height   = 480,
-    [int]   $X        = -1,   # -1 = "let Windows decide"
+    [int]   $X        = -1,   # -1 = default to an on-screen position (see below)
     [int]   $Y        = -1,
     [int]   $Sessions = 0     # session count from watchfire CLI; drives auto-height
 )
@@ -105,7 +105,14 @@ $EdgeArgs = @(
     "--disable-sync",
     "--disable-features=msEdgeSidebar,msImplicitSignin"
 )
-if ($X -ge 0 -and $Y -ge 0) { $EdgeArgs += "--window-position=$X,$Y" }
+# Always open at an explicit on-screen position. If we let Edge restore the
+# profile's saved placement instead, a reboot or monitor-layout change makes it
+# restore onto a monitor that's gone — the window opens minimized at
+# -32000,-32000 and it looks like "watchfire didn't launch". A fixed position
+# defeats that. Callers can still override with -X/-Y.
+if ($X -lt 0) { $X = 60 }
+if ($Y -lt 0) { $Y = 60 }
+$EdgeArgs += "--window-position=$X,$Y"
 
 # Anchor the fallback so it can never grab the user's pre-existing Edge window:
 # only msedge processes that started at/after this launch are ours.
