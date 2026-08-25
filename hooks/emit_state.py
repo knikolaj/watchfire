@@ -583,7 +583,12 @@ def main() -> int:
     )
     # e.g. "Fable Health (Opus 4.8)", prefixed with 🟡 while working.
     title = terminal_title(base, state.get("model") or "", state.get("status") or "")
-    if title and title != state.get("_tab_title"):
+    # Codex is excluded: it now writes its own terminal-tab title natively via
+    # its [tui].terminal_title config (thread title + model), so our OSC write
+    # would just fight it. Claude Code doesn't touch the title, so we still
+    # drive it for Claude. (name/model in state are still populated above — the
+    # widget uses them regardless of agent.)
+    if title and title != state.get("_tab_title") and args.agent == "claude":
         # NB: NOT /dev/tty. The hook is spawned without a controlling terminal,
         # so opening /dev/tty fails with ENXIO and the OSC escape never reaches
         # the tab. Write to the agent CLI's own terminal device instead (found
