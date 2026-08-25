@@ -57,6 +57,7 @@ public class WinTop {
         IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
     public static IntPtr HWND_TOPMOST    = new IntPtr(-1);
     public static IntPtr HWND_NOTOPMOST  = new IntPtr(-2);
     public const uint SWP_NOMOVE         = 0x0002;
@@ -68,9 +69,24 @@ public class WinTop {
 "@ | Out-Null
 
 function Set-WidgetTopmost([IntPtr]$hwnd) {
-    # Un-minimize first: a widget restored from a previous session can come back
-    # parked at -32000,-32000 (minimized), and SWP_NOMOVE|NOSIZE never shows it.
-    [void][WinTop]::ShowWindow($hwnd, [WinTop]::SW_RESTORE)
+    # Un-minimize the widget, then pin it topmost. Edge re-applies the profile's
+    # last (minimized) show-state a beat AFTER the window handle first appears,
+    # so a single SW_RESTORE loses the race and the window stays parked at
+    # -32000,-32000. Keep forcing SW_RESTORE until it stays un-minimized for a
+    # few checks in a row. Position comes from --window-position, so a restore
+    # brings it back on-screen without us moving it (which would fight a window
+    # the user deliberately repositioned on the reuse path).
+    $deadline = (Get-Date).AddSeconds(10)
+    $stable = 0
+    while ((Get-Date) -lt $deadline -and $stable -lt 4) {
+        if ([WinTop]::IsIconic($hwnd)) {
+            [void][WinTop]::ShowWindow($hwnd, [WinTop]::SW_RESTORE)
+            $stable = 0
+        } else {
+            $stable++
+        }
+        Start-Sleep -Milliseconds 150
+    }
     [void][WinTop]::SetWindowPos(
         $hwnd, [WinTop]::HWND_TOPMOST, 0, 0, 0, 0,
         [WinTop]::SWP_NOMOVE -bor [WinTop]::SWP_NOSIZE -bor [WinTop]::SWP_NOACTIVATE -bor [WinTop]::SWP_SHOWWINDOW)
