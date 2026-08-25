@@ -185,6 +185,19 @@ def test_extract_codex_thread_name_from_index(tmp_path, monkeypatch):
     assert emit_state.extract_codex_thread_name(str(_codex_rollout(tmp_path))) == "GPT5.5 Troubles"
 
 
+def test_codex_does_not_write_tab_title(run_hook):
+    """Codex sets its own terminal-tab title natively (its tui.terminal_title
+    config), so the hook must NOT drive the tab title for codex sessions —
+    otherwise the two fight. name/model still land in state for the widget."""
+    s = run_hook({
+        "session_id": "cx-notitle",
+        "hook_event_name": "UserPromptSubmit",
+        "cwd": "/home/nj/projects/personal/earbuddy",
+        "prompt": "hi",
+    }, agent="codex")
+    assert "_tab_title" not in s
+
+
 def test_extract_codex_thread_name_falls_back_to_transcript(tmp_path, monkeypatch):
     """No index entry → fall back to the old in-transcript thread_name_updated."""
     import emit_state
