@@ -108,6 +108,7 @@ async function listAllClaudeChats(opts = {}) {
       let stat;
       try { stat = await fs.stat(fp); } catch { continue; }
       const meta = await extractClaudeTranscriptMeta(fp);
+      if (!meta) continue;   // empty/unreadable stub — skip
       const cwdReal = meta.cwd || fallbackCwd;
       const cwd = cwdReal.toLowerCase();
       const row = {
@@ -166,6 +167,7 @@ export async function listClaudeChatsForCwd(cwd, opts = {}) {
     let stat;
     try { stat = await fs.stat(fp); } catch { return null; }
     const meta = await extractClaudeTranscriptMeta(fp);
+    if (!meta) return null;   // empty/unreadable stub — skip
     return {
       session_id: f.replace(/\.jsonl$/, ""),
       cwd,
@@ -214,10 +216,14 @@ export async function buildCodexIndex(opts = {}) {
 
 export async function extractClaudeTranscriptMeta(filePath) {
   let raw;
-  try { raw = await fs.readFile(filePath, "utf-8"); } catch { return {}; }
+  try { raw = await fs.readFile(filePath, "utf-8"); } catch { return null; }
   let custom = "";
   let firstPrompt = "";
   let cwd = "";
+  // Real conversation? A transcript with no user/assistant turn (e.g. an
+  // abandoned "bridge-session" stub that Claude leaves on disk) should not
+  // show up in History as a chat — return null so callers skip it.
+  let hasMessage = false;
   // Context % comes from the LAST assistant message's `usage` block
   // (= what the model just had in its window). Track the most recent we
   // see; can't break early because we want the freshest one.
@@ -232,6 +238,7 @@ export async function extractClaudeTranscriptMeta(filePath) {
       try {
         const o = JSON.parse(line);
         if (o.type === "user") {
+          hasMessage = true;
           // user entries carry the cwd directly — reliable source of truth,
           // since reverse-flattening the project dir name loses the
           // distinction between `/` and `-`.
@@ -250,12 +257,14 @@ export async function extractClaudeTranscriptMeta(filePath) {
         const o = JSON.parse(line);
         const msg = o.message || {};
         if (o.type === "assistant" && msg.usage) {
+          hasMessage = true;
           lastUsage = msg.usage;
           if (msg.model) lastModel = msg.model;
         }
       } catch {}
     }
   }
+  if (!hasMessage) return null;   // empty stub — not a real chat
   const out = { name: custom, first_prompt: firstPrompt.slice(0, 200), cwd };
   if (lastUsage) {
     out.context_tokens =

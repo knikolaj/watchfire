@@ -69,13 +69,32 @@ test("listAllChats falls back to reverse-flattened name when transcript has no c
   // transcript. We must still place the chat somewhere — best-effort
   // reverse, even if hyphens get mistaken for path separators.
   const claudeDir = await tmpDir("ca-claude-noembed");
+  // A real turn, but with no `cwd` field on it — forces the reverse-flatten
+  // fallback. (A message is required: empty transcript stubs are now dropped.)
   await writeJsonl(
     path.join(claudeDir, "-tmp-thing", "s.jsonl"),
-    [{ type: "permission-mode" }],
+    [{ type: "user", message: { content: "hi" } }],
   );
   const out = await listAllChats({ claudeDir, codexDir: await emptyCodexDir(), codexCache: freshCache() });
   assert.equal(out.length, 1);
   assert.equal(out[0].cwd, "/tmp/thing");   // ambiguous, but predictable
+});
+
+test("listAllChats drops empty stub transcripts (no user/assistant turn)", async () => {
+  // Claude leaves abandoned "bridge-session" stubs on disk (0 turns). They
+  // must not linger in History as phantom chats after the session is gone.
+  const claudeDir = await tmpDir("ca-claude-stub");
+  await writeJsonl(
+    path.join(claudeDir, "-mnt-c-users-x", "e8523902.jsonl"),
+    [{ type: "bridge-session", sessionId: "e8523902", lastSequenceNum: 0 }],
+  );
+  await writeJsonl(
+    path.join(claudeDir, "-mnt-c-users-x", "real.jsonl"),
+    [{ type: "user", cwd: "/mnt/c/users/x", message: { content: "hi" } }],
+  );
+  const out = await listAllChats({ claudeDir, codexDir: await emptyCodexDir(), codexCache: freshCache() });
+  assert.equal(out.length, 1);
+  assert.equal(out[0].session_id, "real");
 });
 
 test("listAllChats skips cron-sandbox project dirs (daily-summary, meeting-summaries)", async () => {
