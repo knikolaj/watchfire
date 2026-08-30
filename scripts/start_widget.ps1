@@ -111,6 +111,33 @@ if ($existing) {
 $ProfileDir = Join-Path $env:LOCALAPPDATA "OrchestratorWidget\EdgeProfile"
 New-Item -ItemType Directory -Force -Path $ProfileDir | Out-Null
 
+# Root cause of the recurring "widget opens minimized at -32000,-32000":
+# Edge saves the app window's bounds together with the *work area* of the
+# monitor it was last on. After a reboot / dock / monitor-layout change that
+# monitor is gone, and Edge restores the window against it — landing it
+# minimized. --window-position alone doesn't reliably override this, and the
+# post-open SW_RESTORE loses the race because Edge minimizes it late.
+#
+# We reach this fresh-launch path only when no widget window exists (the reuse
+# check above exited otherwise), so any lingering widget-profile Edge here is a
+# windowless background singleton. Kill it (so its cached placement can't be
+# handed off and Preferences isn't locked), then drop the saved placement so
+# the next launch opens fresh at --window-position. Best-effort throughout.
+Get-CimInstance Win32_Process -Filter "Name='msedge.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -like "*OrchestratorWidget*" } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+$prefFile = Join-Path $ProfileDir "Default\Preferences"
+if (Test-Path $prefFile) {
+    try {
+        $prefs = Get-Content $prefFile -Raw -ErrorAction Stop | ConvertFrom-Json
+        if ($prefs.browser -and ($prefs.browser.PSObject.Properties.Name -contains "app_window_placement")) {
+            $prefs.browser.PSObject.Properties.Remove("app_window_placement")
+            ($prefs | ConvertTo-Json -Depth 100 -Compress) | Set-Content $prefFile -Encoding utf8
+        }
+    } catch { }
+    Start-Sleep -Milliseconds 300
+}
+
 $EdgeArgs = @(
     "--app=$Url",
     "--user-data-dir=$ProfileDir",
