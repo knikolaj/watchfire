@@ -13,6 +13,7 @@ import os from "node:os";
 import {
   prePruneBoot,
   pruneOrphanedSessions,
+  pruneSupersededSessions,
   isClaudeProcessAlive,
   getSystemBootTimeSec,
 } from "../../server/prune.js";
@@ -147,4 +148,30 @@ test("getSystemBootTimeSec parses /proc/stat btime line", async () => {
 
 test("getSystemBootTimeSec returns 0 when file is missing", () => {
   assert.equal(getSystemBootTimeSec("/no/such/file"), 0);
+});
+
+// --- pruneSupersededSessions ----------------------------------------------
+
+test("pruneSupersededSessions keeps the freshest state file per pid", async () => {
+  const dir = await tmpDir("prune-super");
+  // One terminal (pid 100): a claude /resume stub, then the resumed session.
+  await writeState(dir, "stub",     { pid: 100, last_event_at: 10, name: null,   status: "idle" });
+  await writeState(dir, "resumed",  { pid: 100, last_event_at: 50, name: "Real", status: "working" });
+  // A different live terminal (pid 200) — untouched.
+  await writeState(dir, "other",    { pid: 200, last_event_at: 30, name: "Other" });
+  // No pid — left alone (prePruneBoot's job).
+  await writeState(dir, "nopid",    { last_event_at: 5 });
+
+  const removed = await pruneSupersededSessions(dir);
+  assert.equal(removed, 1);
+  assert.deepEqual(await listSessionIds(dir), ["nopid", "other", "resumed"]);
+});
+
+test("pruneSupersededSessions is a no-op when every pid is unique", async () => {
+  const dir = await tmpDir("prune-super-noop");
+  await writeState(dir, "a", { pid: 1, last_event_at: 10 });
+  await writeState(dir, "b", { pid: 2, last_event_at: 20 });
+  const removed = await pruneSupersededSessions(dir);
+  assert.equal(removed, 0);
+  assert.deepEqual(await listSessionIds(dir), ["a", "b"]);
 });
