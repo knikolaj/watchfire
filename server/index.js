@@ -17,6 +17,7 @@ import { WebSocketServer } from "ws";
 
 import { listChatsForCwd, listAllChats } from "./chats.js";
 import { prePruneBoot, pruneOrphanedSessions, pruneSupersededSessions } from "./prune.js";
+import { remapCwd } from "./config.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WEB_DIR = path.resolve(__dirname, "..", "web");
@@ -102,7 +103,10 @@ async function handleRequest(req, res) {
     try { body = await readBody(req); } catch {}
     const agent = body.agent === "codex" ? "codex" : "claude";
     const sessionId = String(body.session_id || "").trim();
-    const cwd = String(body.cwd || "").trim();
+    // Redirect the resume cwd via the user's optional cwdRemap (e.g. an old
+    // general-chats folder that moved). Safe because resume finds the session
+    // by id regardless of cwd; the cwd only sets where it re-opens.
+    const cwd = remapCwd(String(body.cwd || "").trim());
     const name = String(body.name || "").trim();
     if (!sessionId) {
       res.writeHead(400, { "content-type": "application/json" });
