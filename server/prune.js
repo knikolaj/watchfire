@@ -86,3 +86,38 @@ export async function pruneOrphanedSessions(stateDir, opts = {}) {
   }
   return removed;
 }
+
+/** Delete state files that have been *superseded on their terminal*: when
+ *  several state files share the same pid, only the most-recently-active one
+ *  is the session currently running in that tab — the others are abandoned.
+ *
+ *  This is what `claude /resume` leaves behind: the resume-picker starts a
+ *  throwaway nameless session (SessionStart -> idle), then the picked session
+ *  continues under a NEW session_id on the SAME pid. The stub's pid stays
+ *  alive (same process), so pruneOrphanedSessions never removes it, and the
+ *  widget shows a phantom nameless row per resume. One tab = one live session,
+ *  so keep the freshest per pid and drop the rest. Returns the number removed. */
+export async function pruneSupersededSessions(stateDir, opts = {}) {
+  const files = (await fs.readdir(stateDir).catch(() => []))
+    .filter(f => f.endsWith(".json"));
+  // Group readable state files by pid.
+  const byPid = new Map();
+  for (const f of files) {
+    const fp = path.join(stateDir, f);
+    try {
+      const s = JSON.parse(await fs.readFile(fp, "utf-8"));
+      if (!s.pid) continue;
+      (byPid.get(s.pid) ?? byPid.set(s.pid, []).get(s.pid)).push({ fp, at: s.last_event_at || 0 });
+    } catch { /* unreadable — leave it */ }
+  }
+  let removed = 0;
+  for (const group of byPid.values()) {
+    if (group.length < 2) continue;
+    // Keep the freshest by last_event_at; delete the older siblings.
+    group.sort((a, b) => b.at - a.at);
+    for (const { fp } of group.slice(1)) {
+      try { await fs.unlink(fp); removed++; } catch { /* ignore */ }
+    }
+  }
+  return removed;
+}

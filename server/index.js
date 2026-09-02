@@ -16,7 +16,7 @@ import chokidar from "chokidar";
 import { WebSocketServer } from "ws";
 
 import { listChatsForCwd, listAllChats } from "./chats.js";
-import { prePruneBoot, pruneOrphanedSessions } from "./prune.js";
+import { prePruneBoot, pruneOrphanedSessions, pruneSupersededSessions } from "./prune.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WEB_DIR = path.resolve(__dirname, "..", "web");
@@ -302,11 +302,15 @@ const removedBoot = await prePruneBoot(STATE_DIR);
 if (removedBoot) console.log(`pruned ${removedBoot} pre-boot session(s)`);
 const removedOrphans = await pruneOrphanedSessions(STATE_DIR);
 if (removedOrphans) console.log(`pruned ${removedOrphans} orphan session(s)`);
+const removedSuperseded = await pruneSupersededSessions(STATE_DIR);
+if (removedSuperseded) console.log(`pruned ${removedSuperseded} superseded session(s)`);
 // Re-check every 5 minutes so closed-but-not-rebooted sessions disappear
 // without needing a server restart.
 setInterval(async () => {
   const r = await pruneOrphanedSessions(STATE_DIR).catch(() => 0);
   if (r) console.log(`pruned ${r} orphan session(s)`);
+  const s = await pruneSupersededSessions(STATE_DIR).catch(() => 0);
+  if (s) console.log(`pruned ${s} superseded session(s)`);
 }, 5 * 60 * 1000);
 
 server.listen(PORT, () => {
