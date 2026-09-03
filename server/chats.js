@@ -16,6 +16,7 @@ import path from "node:path";
 import os from "node:os";
 import { createReadStream } from "node:fs";
 import readline from "node:readline";
+import { loadConfig, remapCwd } from "./config.js";
 
 const DEFAULT_CLAUDE_PROJECTS = path.join(os.homedir(), ".claude", "projects");
 const DEFAULT_CODEX_SESSIONS  = path.join(os.homedir(), ".codex",  "sessions");
@@ -69,11 +70,17 @@ export async function listChatsForCwd(cwd, opts = {}) {
  *  so the client can group/sort however it wants. */
 export async function listAllChats(opts = {}) {
   const limit = opts.limit ?? 500;
+  const config = opts.config ?? loadConfig();
   const [claude, codex] = await Promise.all([
     listAllClaudeChats(opts),
     listAllCodexChats(opts),
   ]);
   return [...claude, ...codex]
+    // Group History by the *remapped* cwd (cwdRemap), so chats from a folder
+    // that moved land under their new home instead of a stale group. `cwd` is
+    // the grouping key; `cwd_real` stays original (the /resume handler remaps
+    // it too). No-op unless the user configured cwdRemap.
+    .map(c => ({ ...c, cwd: remapCwd(c.cwd, config) }))
     .sort((a, b) => b.last_modified - a.last_modified)
     .slice(0, limit);
 }
