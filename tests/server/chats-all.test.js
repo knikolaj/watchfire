@@ -133,3 +133,22 @@ test("listAllChats sorts by last_modified desc and respects opts.limit", async (
   const top2 = await listAllChats({ claudeDir, codexDir: await emptyCodexDir(), codexCache: freshCache(), limit: 2 });
   assert.deepEqual(top2.map(x => x.session_id), ["newest", "middle"]);
 });
+
+test("listAllChats groups chats under the remapped cwd (cwdRemap)", async () => {
+  // An old-folder chat and a new-folder chat; cwdRemap points old -> new.
+  const claudeDir = await tmpDir("ca-remap");
+  await writeJsonl(path.join(claudeDir, "-mnt-c-users-old", "a.jsonl"),
+    [{ type: "user", cwd: "/mnt/c/users/old", message: { content: "hi" } }]);
+  await writeJsonl(path.join(claudeDir, "-home-u-chats", "b.jsonl"),
+    [{ type: "user", cwd: "/home/u/chats", message: { content: "yo" } }]);
+  const config = { cwdRemap: { "/mnt/c/Users/Old": "/home/u/chats" } };
+  const out = await listAllChats({
+    claudeDir, codexDir: await emptyCodexDir(), codexCache: freshCache(), config,
+  });
+  assert.equal(out.length, 2);
+  // Both rows now report the same (remapped) cwd -> a single History group.
+  assert.deepEqual([...new Set(out.map(r => r.cwd))], ["/home/u/chats"]);
+  // cwd_real stays original (resume handler remaps it): the old one is untouched.
+  const oldRow = out.find(r => r.session_id === "a");
+  assert.equal(oldRow.cwd_real, "/mnt/c/users/old");
+});
