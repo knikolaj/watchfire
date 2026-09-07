@@ -168,9 +168,14 @@ if (-not $proc) {
 
 # msedge spawns child processes; the window we want belongs to one of them
 # (typically the first child that gains a non-zero MainWindowHandle). A cold
-# Edge on Windows can take well over 6s to paint its first window, so poll
-# generously — otherwise always-on-top silently doesn't get applied.
-$deadline = (Get-Date).AddSeconds(15)
+# Edge on Windows can take *much* longer than a few seconds to paint its first
+# window — especially right after a reboot, when it competes with Defender,
+# Dropbox sync and Edge's own updater. If we give up too early the window still
+# appears, just late and unmanaged (not raised/positioned), and it reads as
+# "watchfire didn't launch". So poll generously (we exit the instant the window
+# shows, so the common fast case pays nothing); only a genuinely failed launch
+# waits out the full cap.
+$deadline = (Get-Date).AddSeconds(45)
 $hwnd = [IntPtr]::Zero
 
 while ((Get-Date) -lt $deadline -and $hwnd -eq [IntPtr]::Zero) {
