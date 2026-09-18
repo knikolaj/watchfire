@@ -301,6 +301,10 @@
     }
     .hs-toggle:hover  { background: var(--bg-row-hover); color: var(--text); }
     .hs-toggle.active { background: var(--bg-row); color: var(--text); }
+    /* Reveal-toggle for tool-spawned codex sessions, pushed to the far right.
+       Dimmed + hidden entirely when there's nothing to reveal. */
+    .codex-toggle { margin-left: auto; }
+    .codex-toggle[hidden] { display: none; }
 
     .history-body { overflow-y: scroll; flex: 1; padding: 6px 0 8px; }
     .history-body::-webkit-scrollbar { width: 8px; }
@@ -407,6 +411,8 @@
     <div class="history-toolbar">
       <button class="hs-toggle" data-sort="project">by project</button>
       <button class="hs-toggle" data-sort="time">by time</button>
+      <button class="hs-toggle codex-toggle" id="codexToggle"
+              title="Tool-spawned codex sessions (rescue / companion) are hidden by default">⚙ codex</button>
     </div>
     <div class="history-body" id="historyBody"></div>
   </div>

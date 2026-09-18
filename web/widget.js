@@ -16,6 +16,7 @@ import {
   renderChatsPopupHtml,
   renderHistoryByProjectHtml,
   renderHistoryByTimeHtml,
+  filterHistoryChats,
 } from "./widget-pure.js";
 
 const sessions = new Map();        // session_id -> session
@@ -31,6 +32,7 @@ const miniBarEl  = document.getElementById("miniBar");
 const modebarEl  = document.getElementById("modebar");
 const historyEl  = document.getElementById("history");
 const historyBodyEl = document.getElementById("historyBody");
+const codexToggleEl = document.getElementById("codexToggle");
 
 // History view state — populated by /chats-all the first time mode=history
 // is entered. Persisted-by-app: chats list itself is a fetch, expanded set
@@ -162,6 +164,16 @@ document.addEventListener("click", (e) => {
 const MODE_KEY        = "watchfire.mode";
 const LEGACY_MINI_KEY = "orchestrator.mini";
 const HSORT_KEY       = "watchfire.historySort";
+const HCODEX_KEY      = "watchfire.showCodexTasks";   // reveal tool-spawned codex
+
+function currentShowCodexTasks() {
+  try { return localStorage.getItem(HCODEX_KEY) === "1"; } catch { return false; }
+}
+
+function setShowCodexTasks(on) {
+  try { localStorage.setItem(HCODEX_KEY, on ? "1" : "0"); } catch {}
+  renderHistory();
+}
 
 function currentMode() {
   try {
@@ -208,7 +220,7 @@ function currentHistorySort() {
 
 function setHistorySort(s) {
   try { localStorage.setItem(HSORT_KEY, s); } catch {}
-  for (const b of historyEl.querySelectorAll(".hs-toggle")) {
+  for (const b of historyEl.querySelectorAll(".hs-toggle[data-sort]")) {
     b.classList.toggle("active", b.dataset.sort === s);
   }
   renderHistory();
@@ -237,9 +249,13 @@ function renderHistory() {
   const sort = currentHistorySort();
   const now = Date.now() / 1000;
   const liveIds = new Set(sessions.keys());   // which chats have a live window
+  // Hide tool-spawned codex sessions (rescue/companion) unless revealed.
+  const showCodex = currentShowCodexTasks();
+  const { chats, hidden } = filterHistoryChats(historyChats, showCodex);
+  updateCodexToggle(hidden, showCodex);
   historyBodyEl.innerHTML = sort === "time"
-    ? renderHistoryByTimeHtml(historyChats, now, liveIds)
-    : renderHistoryByProjectHtml(historyChats, now, { expanded: historyExpanded, liveIds });
+    ? renderHistoryByTimeHtml(chats, now, liveIds)
+    : renderHistoryByProjectHtml(chats, now, { expanded: historyExpanded, liveIds });
 
   for (const h of historyBodyEl.querySelectorAll(".hist-group-header")) {
     h.addEventListener("click", () => {
@@ -268,11 +284,24 @@ function renderHistory() {
   }
 }
 
-for (const b of historyEl.querySelectorAll(".hs-toggle")) {
+// Reflect current reveal state + hidden count on the ⚙ codex toggle. Hide the
+// button entirely when nothing is hidden and reveal is off — no noise when
+// there are no tool-spawned sessions to reveal.
+function updateCodexToggle(hidden, showCodex) {
+  if (!codexToggleEl) return;
+  codexToggleEl.classList.toggle("active", showCodex);
+  codexToggleEl.textContent = showCodex ? "⚙ codex" : (hidden ? `⚙ codex (${hidden})` : "⚙ codex");
+  codexToggleEl.hidden = !showCodex && hidden === 0;
+}
+
+for (const b of historyEl.querySelectorAll(".hs-toggle[data-sort]")) {
   b.addEventListener("click", () => setHistorySort(b.dataset.sort));
 }
+if (codexToggleEl) {
+  codexToggleEl.addEventListener("click", () => setShowCodexTasks(!currentShowCodexTasks()));
+}
 // Initial toolbar highlight (history pane doesn't paint until first visit).
-for (const b of historyEl.querySelectorAll(".hs-toggle")) {
+for (const b of historyEl.querySelectorAll(".hs-toggle[data-sort]")) {
   b.classList.toggle("active", b.dataset.sort === currentHistorySort());
 }
 

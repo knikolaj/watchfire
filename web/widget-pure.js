@@ -213,6 +213,30 @@ function agentBadge(agent) {
   return `<div class="badge ${cls}">${logo}</div>`;
 }
 
+/** A codex session launched by tooling — a rescue `codex exec` task or the
+ *  Claude Code companion — rather than started by the user by hand. Keyed on the
+ *  transcript's `source`: interactive codex is always "cli"; tool-spawned is
+ *  "exec"/"vscode". Unknown/empty source (old rollouts, every Claude chat) is
+ *  NOT tool-spawned, so those stay visible. */
+export function isToolSpawnedCodex(c) {
+  return !!c && c.agent === "codex" && !!c.source && c.source !== "cli";
+}
+
+/** History hides tool-spawned codex sessions by default — short-lived,
+ *  truncated-context rescue threads that otherwise pile up under a project.
+ *  Returns { chats, hidden } so the toolbar can label the reveal toggle with a
+ *  count. `showCodexTasks` truthy = show everything. */
+export function filterHistoryChats(chats, showCodexTasks) {
+  if (showCodexTasks) return { chats, hidden: 0 };
+  const kept = [];
+  let hidden = 0;
+  for (const c of chats) {
+    if (isToolSpawnedCodex(c)) hidden++;
+    else kept.push(c);
+  }
+  return { chats: kept, hidden };
+}
+
 /** History grouped by cwd; groups collapsed by default. Sorted by the
  *  freshest chat inside each group. */
 export function renderHistoryByProjectHtml(chats, now, opts = {}) {
