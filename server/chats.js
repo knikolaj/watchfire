@@ -334,6 +334,8 @@ export async function extractCodexTranscriptMeta(filePath) {
   // prompt and easily exceeds 64KB, so a fixed-byte slice would chop it
   // mid-string and break JSON.parse.
   let cwd = "";
+  let source = "";                 // session_meta.source: "cli" (interactive) vs
+                                   // "exec"/"vscode" (tool-spawned rescue/companion)
   let firstPrompt = "";
   let threadName = "";              // last thread_name_updated wins (Codex /rename)
   let lastTokenInfo = null;        // last event_msg.token_count.info we see
@@ -347,6 +349,16 @@ export async function extractCodexTranscriptMeta(filePath) {
           const o = JSON.parse(line);
           if (o.type === "session_meta" && o.payload && o.payload.cwd) {
             cwd = String(o.payload.cwd).trim();
+            // source is "cli" for interactive codex; a string ("exec"/"vscode")
+            // for tool-spawned rescue/companion; or an object
+            // ({ subagent: { thread_spawn: … } }) for codex's own sub-agent
+            // threads. Normalize an object to its top-level key ("subagent") so
+            // the value stays a clean, comparable string — anything != "cli"
+            // is hidden from History by default.
+            const s = o.payload.source;
+            if (s != null) {
+              source = typeof s === "string" ? s.trim() : (Object.keys(s)[0] || "object");
+            }
           }
         } catch {}
       }
@@ -395,6 +407,11 @@ export async function extractCodexTranscriptMeta(filePath) {
     name: indexName || threadName,
     first_prompt: firstPrompt.slice(0, 200),
     last_modified: stat.mtimeMs,
+    // How the session was launched. "cli" = the user's own interactive codex;
+    // "exec"/"vscode" = tool-spawned (rescue task / Claude Code companion),
+    // which the widget hides from History by default. Empty for old rollouts
+    // with no source field — treated as not-tool-spawned (stays visible).
+    source,
   };
   if (lastTokenInfo) {
     const used = lastTokenInfo.last_token_usage?.input_tokens;

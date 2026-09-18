@@ -152,3 +152,36 @@ test("listAllChats groups chats under the remapped cwd (cwdRemap)", async () => 
   const oldRow = out.find(r => r.session_id === "a");
   assert.equal(oldRow.cwd_real, "/mnt/c/users/old");
 });
+
+test("listAllChats carries codex session_meta.source (cli vs tool-spawned)", async () => {
+  const claudeDir = await tmpDir("ca-src-claude");
+  const codexDir  = await tmpDir("ca-src-codex");
+  // Interactive codex session.
+  await writeJsonl(
+    path.join(codexDir, "2026", "02", "02",
+              "rollout-019daaaa-aaaa-7aaa-aaaa-aaaaaaaaaaaa.jsonl"),
+    [{ type: "session_meta", payload: { cwd: "/proj/C", source: "cli" } },
+     { type: "event_msg", payload: { type: "user_message", message: "mine" } }],
+  );
+  // Tool-spawned rescue task (codex exec).
+  await writeJsonl(
+    path.join(codexDir, "2026", "02", "02",
+              "rollout-019dbbbb-bbbb-7bbb-bbbb-bbbbbbbbbbbb.jsonl"),
+    [{ type: "session_meta", payload: { cwd: "/proj/C", source: "exec" } },
+     { type: "event_msg", payload: { type: "user_message", message: "rescue" } }],
+  );
+  // Sub-agent thread: source is an object, normalized to its top-level key.
+  await writeJsonl(
+    path.join(codexDir, "2026", "02", "02",
+              "rollout-019dcccc-cccc-7ccc-cccc-cccccccccccc.jsonl"),
+    [{ type: "session_meta", payload: { cwd: "/proj/C",
+        source: { subagent: { thread_spawn: { depth: 1, agent_role: "explorer" } } } } },
+     { type: "event_msg", payload: { type: "user_message", message: "sub" } }],
+  );
+  const out = await listAllChats({ claudeDir, codexDir, codexCache: freshCache() });
+  const bySrc = Object.fromEntries(out.map(r => [r.session_id.slice(0, 8), r.source]));
+  assert.equal(bySrc["019daaaa"], "cli");
+  assert.equal(bySrc["019dbbbb"], "exec");
+  assert.equal(bySrc["019dcccc"], "subagent", "object source normalized to its key");
+});
+
