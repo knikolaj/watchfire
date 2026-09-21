@@ -23,6 +23,21 @@ param(
     [int]   $Sessions = 0     # session count from watchfire CLI; drives auto-height
 )
 
+# --- Launch diagnostics -----------------------------------------------------
+# The recurring "widget didn't launch (no taskbar icon)" only surfaces on a
+# cold boot and can't be reproduced once the machine is warm, so leave a
+# breadcrumb every run. Read it from WSL at:
+#   /mnt/c/Users/<you>/AppData/Local/OrchestratorWidget/widget-launch.log
+$LogDir  = Join-Path $env:LOCALAPPDATA "OrchestratorWidget"
+New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+$LogFile = Join-Path $LogDir "widget-launch.log"
+function Write-Log([string]$msg) {
+    try { Add-Content -Path $LogFile -Value ("{0}  {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $msg) -Encoding utf8 } catch {}
+}
+Add-Type -AssemblyName System.Windows.Forms
+$vs0 = [System.Windows.Forms.SystemInformation]::VirtualScreen
+Write-Log ("=== launch Url=$Url Sessions=$Sessions vscreen=({0},{1})-({2},{3}) ===" -f $vs0.Left,$vs0.Top,$vs0.Right,$vs0.Bottom)
+
 # If caller didn't override $Height, scale it to fit the session count so the
 # widget opens without scrolling. Empirical sizing at zoom 1.15:
 #   - chrome (title bar) + scroll padding ≈ 80px
@@ -58,6 +73,9 @@ public class WinTop {
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT r);
+    [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hWnd, int X, int Y, int w, int h, bool repaint);
+    [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
     public static IntPtr HWND_TOPMOST    = new IntPtr(-1);
     public static IntPtr HWND_NOTOPMOST  = new IntPtr(-2);
     public const uint SWP_NOMOVE         = 0x0002;
@@ -87,6 +105,20 @@ function Set-WidgetTopmost([IntPtr]$hwnd) {
         }
         Start-Sleep -Milliseconds 150
     }
+    # If the window restored to an off-screen position — stale placement from a
+    # monitor layout that's since changed, or the -32000 minimized sentinel —
+    # pull it back on-screen. Only when *fully* off-screen, so a window the user
+    # deliberately repositioned on-screen is left where they put it.
+    $vs = [System.Windows.Forms.SystemInformation]::VirtualScreen
+    $r = New-Object WinTop+RECT
+    if ([WinTop]::GetWindowRect($hwnd, [ref]$r)) {
+        $off = ($r.Right -le $vs.Left) -or ($r.Left -ge $vs.Right) -or `
+               ($r.Bottom -le $vs.Top) -or ($r.Top -ge $vs.Bottom) -or ($r.Left -lt -30000)
+        if ($off) {
+            Write-Log ("rescue off-screen rect=({0},{1})-({2},{3}) -> 60,60" -f $r.Left,$r.Top,$r.Right,$r.Bottom)
+            [void][WinTop]::MoveWindow($hwnd, 60, 60, $Width, $Height, $true)
+        }
+    }
     [void][WinTop]::SetWindowPos(
         $hwnd, [WinTop]::HWND_TOPMOST, 0, 0, 0, 0,
         [WinTop]::SWP_NOMOVE -bor [WinTop]::SWP_NOSIZE -bor [WinTop]::SWP_NOACTIVATE -bor [WinTop]::SWP_SHOWWINDOW)
@@ -102,10 +134,12 @@ $existing = Get-Process -Name "msedge" -ErrorAction SilentlyContinue |
     Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -match "Watchfire|Orchestrator|widget" } |
     Select-Object -First 1
 if ($existing) {
+    Write-Log ("reuse existing hwnd=" + $existing.MainWindowHandle + " title=[" + $existing.MainWindowTitle + "]")
     Set-WidgetTopmost $existing.MainWindowHandle
-    Write-Verbose ("reused existing widget hwnd=" + $existing.MainWindowHandle)
+    Write-Log "reuse done -> exit 0"
     exit 0
 }
+Write-Log "no existing widget window; fresh launch path"
 
 # Dedicated profile dir so app windows don't fight with the user's regular Edge.
 $ProfileDir = Join-Path $env:LOCALAPPDATA "OrchestratorWidget\EdgeProfile"
@@ -157,55 +191,59 @@ if ($X -lt 0) { $X = 60 }
 if ($Y -lt 0) { $Y = 60 }
 $EdgeArgs += "--window-position=$X,$Y"
 
-# Anchor the fallback so it can never grab the user's pre-existing Edge window:
-# only msedge processes that started at/after this launch are ours.
-$launchTime = (Get-Date).AddSeconds(-1)
-$proc = Start-Process -FilePath $Edge -ArgumentList $EdgeArgs -PassThru
-if (-not $proc) {
-    Write-Error "Failed to start Edge."
-    exit 3
+# Find the widget window that appeared at/after $since — by title, with a
+# start-time fallback (the title can lag the handle). Zero after $timeoutSec.
+function Find-WidgetWindow([datetime]$since, [int]$timeoutSec) {
+    $deadline = (Get-Date).AddSeconds($timeoutSec)
+    while ((Get-Date) -lt $deadline) {
+        Start-Sleep -Milliseconds 200
+        $m = Get-Process -Name "msedge" -ErrorAction SilentlyContinue |
+             Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -match "Watchfire|Orchestrator|widget" } |
+             Select-Object -First 1
+        if ($m) { return $m.MainWindowHandle }
+        # Title can lag the handle — fall back to the newest window this launch spawned.
+        $any = Get-Process -Name "msedge" -ErrorAction SilentlyContinue |
+               Where-Object { $_.MainWindowHandle -ne 0 -and $_.StartTime -ge $since } |
+               Sort-Object StartTime -Descending | Select-Object -First 1
+        if ($any) { return $any.MainWindowHandle }
+    }
+    return [IntPtr]::Zero
 }
 
-# msedge spawns child processes; the window we want belongs to one of them
-# (typically the first child that gains a non-zero MainWindowHandle). A cold
-# Edge on Windows can take *much* longer than a few seconds to paint its first
-# window — especially right after a reboot, when it competes with Defender,
-# Dropbox sync and Edge's own updater. If we give up too early the window still
-# appears, just late and unmanaged (not raised/positioned), and it reads as
-# "watchfire didn't launch". So poll generously (we exit the instant the window
-# shows, so the common fast case pays nothing); only a genuinely failed launch
-# waits out the full cap.
-$deadline = (Get-Date).AddSeconds(45)
+# Launch, then wait for the window. A cold Edge right after a reboot sometimes
+# never paints a window on the first try (it competes with Defender, Dropbox
+# sync and Edge's own updater) — the "no window, no taskbar icon" symptom that
+# a minute-later retry-by-hand always fixed. So retry the whole launch a few
+# times: each extra attempt clears any windowless singleton the previous one
+# left, relaunches, and polls again. We stop the instant a window shows, so the
+# warm fast path pays for just one attempt.
 $hwnd = [IntPtr]::Zero
-
-while ((Get-Date) -lt $deadline -and $hwnd -eq [IntPtr]::Zero) {
-    Start-Sleep -Milliseconds 200
-    # Refresh handles on the original process AND on any msedge children.
-    $candidates = @($proc) + (Get-Process -Name "msedge" -ErrorAction SilentlyContinue)
-    foreach ($p in $candidates) {
-        try { $p.Refresh() } catch {}
-        if ($p.MainWindowHandle -ne 0 -and $p.MainWindowTitle -match "Watchfire|Orchestrator|widget") {
-            $hwnd = $p.MainWindowHandle
-            break
-        }
+$maxAttempts = 3
+for ($attempt = 1; $attempt -le $maxAttempts -and $hwnd -eq [IntPtr]::Zero; $attempt++) {
+    if ($attempt -gt 1) {
+        Get-CimInstance Win32_Process -Filter "Name='msedge.exe'" -ErrorAction SilentlyContinue |
+            Where-Object { $_.CommandLine -like "*OrchestratorWidget*" } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+        Start-Sleep -Milliseconds 500
     }
-    # Fallback: newest msedge window started by *this* launch — the title can
-    # lag behind the window handle, so a match-by-title miss shouldn't strand us.
-    if ($hwnd -eq [IntPtr]::Zero) {
-        $any = Get-Process -Name "msedge" -ErrorAction SilentlyContinue |
-               Where-Object { $_.MainWindowHandle -ne 0 -and $_.StartTime -ge $launchTime } |
-               Sort-Object StartTime -Descending |
-               Select-Object -First 1
-        if ($any) { $hwnd = $any.MainWindowHandle }
-    }
+    # Anchor so the fallback can't grab a pre-existing Edge window.
+    $launchTime = (Get-Date).AddSeconds(-1)
+    $proc = Start-Process -FilePath $Edge -ArgumentList $EdgeArgs -PassThru
+    if (-not $proc) { Write-Log "attempt $attempt Start-Process returned null"; continue }
+    Write-Log ("attempt $attempt/$maxAttempts launched pid=" + $proc.Id + ", polling 20s")
+    $hwnd = Find-WidgetWindow $launchTime 20
+    $found = if ($hwnd -eq [IntPtr]::Zero) { "NOT found" } else { "found hwnd=$hwnd" }
+    Write-Log "attempt $attempt window $found"
 }
 
 if ($hwnd -eq [IntPtr]::Zero) {
-    Write-Verbose "Could not find widget window for always-on-top; window opened normally."
+    Write-Log "gave up after $maxAttempts attempts; no window to manage -> exit 0"
+    Write-Verbose "Could not find widget window; it may open late and unmanaged."
     exit 0
 }
 
 Set-WidgetTopmost $hwnd
+Write-Log "topmost + on-screen applied to hwnd=$hwnd"
 
 # Taskbar icon override.
 #
@@ -293,7 +331,9 @@ $IcoPath = Join-Path $PSScriptRoot "watchfire.ico"
 if (Test-Path $IcoPath) {
     try {
         [WfIcon]::Apply($hwnd, $IcoPath, "Watchfire.Widget", "Watchfire")
+        Write-Log "taskbar icon + AUMID applied"
     } catch {
+        Write-Log "taskbar icon apply FAILED: $_"
         Write-Warning "Could not apply custom taskbar icon: $_"
     }
 } else {
