@@ -22,21 +22,27 @@ LOG_FILE="$STATE_DIR/server.log"
 
 mkdir -p "$STATE_DIR"
 
+port_listening() { ss -tln "sport = :$PORT" 2>/dev/null | grep -q LISTEN; }
+
+# Echo the PID of a server *this CLI* started, if its pid file still points at a
+# live watchfire node; fail (silently) otherwise. The cmdline check matters:
+# after a reboot/kill the pid file goes stale, and a bare `kill -0` on that
+# number can match an unrelated reused PID — falsely reporting "running" so
+# ensure_server never restarts the dead server and the widget loads a dead port.
+# Failing here is also the normal case for the installed setup, where systemd
+# owns the server and writes no pid file at all.
+cli_server_pid() {
+    [[ -f "$PID_FILE" ]] || return 1
+    local pid; pid=$(<"$PID_FILE") || return 1
+    [[ -n "$pid" ]] || return 1
+    kill -0 "$pid" 2>/dev/null || return 1
+    tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -q 'index.js' || return 1
+    printf '%s\n' "$pid"
+}
+
 server_running() {
-    # True if our PID file points at a live *watchfire* node process, OR
-    # something is listening on the port. The cmdline check matters: after a
-    # reboot/kill the PID file goes stale, and a bare `kill -0` on that number
-    # can match an unrelated reused/system PID — falsely reporting "running"
-    # so ensure_server never restarts the dead server and the widget loads a
-    # dead port. Confirm it's actually our server before trusting the PID.
-    if [[ -f "$PID_FILE" ]]; then
-        local pid; pid=$(<"$PID_FILE")
-        if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null \
-           && tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -q 'index.js'; then
-            return 0
-        fi
-    fi
-    ss -tln "sport = :$PORT" 2>/dev/null | grep -q LISTEN
+    cli_server_pid >/dev/null && return 0
+    port_listening
 }
 
 ensure_server() {
@@ -92,12 +98,18 @@ cmd_server() {
 }
 
 cmd_stop() {
-    if ! server_running; then
-        echo "watchfire: server not running"
+    local pid
+    if ! pid=$(cli_server_pid); then
         rm -f "$PID_FILE"
+        if port_listening; then
+            echo "watchfire: the running server was not started by this CLI." >&2
+            echo "           The installed setup runs it under systemd:" >&2
+            echo "               systemctl --user stop watchfire" >&2
+            return 1
+        fi
+        echo "watchfire: server not running"
         return 0
     fi
-    local pid; pid=$(<"$PID_FILE")
     kill "$pid" 2>/dev/null || true
     sleep 0.3
     if kill -0 "$pid" 2>/dev/null; then kill -9 "$pid" 2>/dev/null || true; fi
@@ -106,15 +118,20 @@ cmd_stop() {
 }
 
 cmd_status() {
-    if server_running; then
-        echo "running (PID $(<"$PID_FILE")) on http://localhost:$PORT"
+    local pid
+    if pid=$(cli_server_pid); then
+        echo "running (PID $pid) on http://localhost:$PORT"
         return
     fi
-    # Server might have been started outside the CLI; check the port too.
+    # Started outside this CLI — systemd in the installed setup. Report it from
+    # the port rather than the (absent) pid file.
     local port_pid
     port_pid=$(ss -tlnp "sport = :$PORT" 2>/dev/null | awk -F'pid=' 'NR==2 {split($2,a,","); print a[1]}')
     if [[ -n "${port_pid:-}" ]]; then
         echo "running (PID $port_pid, started externally) on http://localhost:$PORT"
+    elif port_listening; then
+        # Listening, but ss could not attribute the PID (not our process).
+        echo "running (started externally) on http://localhost:$PORT"
     else
         echo "not running"
     fi
