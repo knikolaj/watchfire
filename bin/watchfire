@@ -1,0 +1,159 @@
+#!/usr/bin/env bash
+# watchfire — Watchfire control script.
+#
+#   watchfire              # default: launch the always-on-top widget window
+#   watchfire widget       # same as above (explicit)
+#   watchfire map          # open the iso-map view in default browser
+#   watchfire server       # start the local Node server in background
+#   watchfire stop         # stop the local Node server
+#   watchfire status       # show server status
+#   watchfire logs         # tail server stdout
+#   watchfire test         # run pytest + node:test suites
+
+set -euo pipefail
+
+# Resolve the checkout from this script's real location, so the CLI works wherever
+# the repo lives and when invoked through the ~/.local/bin symlink.
+WF_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+PORT="${WATCHFIRE_PORT:-4173}"
+STATE_DIR="$HOME/.watchfire"
+PID_FILE="$STATE_DIR/server.pid"
+LOG_FILE="$STATE_DIR/server.log"
+
+mkdir -p "$STATE_DIR"
+
+server_running() {
+    # True if our PID file points at a live *watchfire* node process, OR
+    # something is listening on the port. The cmdline check matters: after a
+    # reboot/kill the PID file goes stale, and a bare `kill -0` on that number
+    # can match an unrelated reused/system PID — falsely reporting "running"
+    # so ensure_server never restarts the dead server and the widget loads a
+    # dead port. Confirm it's actually our server before trusting the PID.
+    if [[ -f "$PID_FILE" ]]; then
+        local pid; pid=$(<"$PID_FILE")
+        if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null \
+           && tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -q 'index.js'; then
+            return 0
+        fi
+    fi
+    ss -tln "sport = :$PORT" 2>/dev/null | grep -q LISTEN
+}
+
+ensure_server() {
+    server_running && return 0
+    # Auto-start for widget/map: stay quiet on success (only the failure path
+    # in cmd_server prints). Explicit `watchfire server` still confirms.
+    cmd_server quiet
+}
+
+cmd_widget() {
+    ensure_server
+    local ps1="$WF_DIR/scripts/start_widget.ps1"
+    local winpath
+    winpath=$(wslpath -w "$ps1")
+    # Count session state files so PS can size the window to fit them all.
+    # nullglob, NOT `ls … | wc -l`: under `set -euo pipefail` a glob that matches
+    # nothing makes ls exit 2, pipefail propagates that, and set -e kills this
+    # script *silently* on the very next line — before the widget is ever
+    # launched. An empty sessions dir is exactly the state right after a reboot
+    # (boot-prune clears stale files, no agent has started yet), which is why the
+    # widget "didn't launch" only on a fresh boot and always worked on a retry.
+    local files=()
+    shopt -s nullglob
+    files=("$STATE_DIR/sessions"/*.json)
+    shopt -u nullglob
+    local sessions=${#files[@]}
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$winpath" -Sessions "$sessions" "$@"
+}
+
+cmd_map() {
+    ensure_server
+    powershell.exe -NoProfile -Command "Start-Process 'http://localhost:$PORT/'" >/dev/null 2>&1
+}
+
+cmd_server() {
+    local quiet="${1:-}"
+    if server_running; then
+        [[ "$quiet" == quiet ]] || echo "watchfire: server already running (PID $(<"$PID_FILE"))"
+        return 0
+    fi
+    cd "$WF_DIR/server"
+    nohup node index.js >>"$LOG_FILE" 2>&1 &
+    echo $! >"$PID_FILE"
+    sleep 0.5
+    if server_running; then
+        [[ "$quiet" == quiet ]] || echo "watchfire: server started (PID $(<"$PID_FILE")), log=$LOG_FILE"
+    else
+        # Always loud — a failed start is the one thing worth interrupting for.
+        echo "watchfire: server failed to start; tail of log:"
+        tail -n 20 "$LOG_FILE" || true
+        return 1
+    fi
+}
+
+cmd_stop() {
+    if ! server_running; then
+        echo "watchfire: server not running"
+        rm -f "$PID_FILE"
+        return 0
+    fi
+    local pid; pid=$(<"$PID_FILE")
+    kill "$pid" 2>/dev/null || true
+    sleep 0.3
+    if kill -0 "$pid" 2>/dev/null; then kill -9 "$pid" 2>/dev/null || true; fi
+    rm -f "$PID_FILE"
+    echo "watchfire: stopped"
+}
+
+cmd_status() {
+    if server_running; then
+        echo "running (PID $(<"$PID_FILE")) on http://localhost:$PORT"
+        return
+    fi
+    # Server might have been started outside the CLI; check the port too.
+    local port_pid
+    port_pid=$(ss -tlnp "sport = :$PORT" 2>/dev/null | awk -F'pid=' 'NR==2 {split($2,a,","); print a[1]}')
+    if [[ -n "${port_pid:-}" ]]; then
+        echo "running (PID $port_pid, started externally) on http://localhost:$PORT"
+    else
+        echo "not running"
+    fi
+}
+
+cmd_logs() { tail -n 50 -f "$LOG_FILE"; }
+
+cmd_test() {
+    # Run every test runner the project has. Exit non-zero on first failure.
+    local rc=0
+    if [[ -d "$WF_DIR/tests/hooks" ]]; then
+        echo "==> pytest tests/hooks/"
+        ( cd "$WF_DIR" && python3 -m pytest tests/hooks/ ) || rc=1
+    fi
+    for d in tests/server tests/widget; do
+        if [[ -d "$WF_DIR/$d" ]]; then
+            # Node 22+ wants explicit *.test.js, not a bare directory.
+            shopt -s nullglob
+            local files=( "$WF_DIR/$d"/*.test.js )
+            shopt -u nullglob
+            if (( ${#files[@]} > 0 )); then
+                echo "==> node --test $d/"
+                ( cd "$WF_DIR" && node --test "${files[@]}" ) || rc=1
+            fi
+        fi
+    done
+    return $rc
+}
+
+cmd_help() { sed -n '2,12p' "$0" | sed 's/^# \?//'; }
+
+case "${1:-widget}" in
+    widget|"")  shift || true; cmd_widget "$@" ;;
+    map)        cmd_map ;;
+    server|up)  cmd_server ;;
+    stop|down)  cmd_stop ;;
+    status)     cmd_status ;;
+    logs|tail)  cmd_logs ;;
+    test)       cmd_test ;;
+    -h|--help|help) cmd_help ;;
+    *)          echo "watchfire: unknown command '$1'"; cmd_help; exit 2 ;;
+esac

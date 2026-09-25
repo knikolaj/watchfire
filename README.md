@@ -52,8 +52,9 @@ directory and pushes changes to the browser over WebSocket.
 ## Setup
 
 ```bash
-# 1. Install server deps
-cd server && npm install
+# 1. Machine wiring: server deps, CLI on PATH, systemd unit, widget autostart.
+deploy/install.sh --dry-run   # preview what gets written where
+deploy/install.sh
 
 # 2. Wire Claude Code hooks: merge docs/install/claude-settings.example.json
 #    into ~/.claude/settings.json. Five hooks: SessionStart, UserPromptSubmit,
@@ -61,9 +62,25 @@ cd server && npm install
 
 # 3. Wire Codex hooks: copy docs/install/codex-hooks.json to ~/.codex/hooks.json
 #    (or merge if you already have one).
-
-# 4. Drop ./bin/watchfire onto your PATH (or symlink it).
 ```
+
+`deploy/install.sh` renders the templates in `deploy/` with this machine's
+values and puts them in place:
+
+| Source                         | Installed as                                     |
+|--------------------------------|--------------------------------------------------|
+| `bin/watchfire`                | `~/.local/bin/watchfire` (symlink)               |
+| `deploy/watchfire.service.in`  | `~/.config/systemd/user/watchfire.service`       |
+| `deploy/boot-widget.sh.in`     | `~/.watchfire/boot-widget.sh`                    |
+| `deploy/watchfire-boot.vbs.in` | Windows Startup folder — opens the widget at logon |
+
+Baked into the rendered files: the checkout path, the absolute `node` path,
+the Windows profile dir and the WSL distro name. **Re-run the installer**
+after upgrading node via nvm, moving the checkout, or on a new machine —
+it is idempotent. Edit the `.in` templates, never the rendered output.
+
+The server starts at WSL boot only if linger is enabled for your user; the
+installer checks and prints the one-time `sudo loginctl enable-linger` if not.
 
 **Heads up if you ever rename or move the project dir** — both the Claude
 and the Codex hook configs hard-code the absolute path to

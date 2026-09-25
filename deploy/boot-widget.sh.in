@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Rendered by deploy/install.sh into ~/.watchfire/boot-widget.sh — edit the
+# template (deploy/boot-widget.sh.in), then re-run the installer.
+#
+# Opens the Watchfire widget at Windows logon. Invoked by the Startup VBS
+# (watchfire-boot.vbs) once it has confirmed WSL is up. Waits for the server to
+# listen on :4173, then launches the widget window.
+#
+# Breadcrumbs go to ~/.watchfire/vbs-boot.log so a failed autostart is
+# diagnosable: whether this ran at all, whether watchfire/powershell.exe were on
+# PATH, when the port came up, and the launcher's exit code.
+LOG="$HOME/.watchfire/vbs-boot.log"
+ts() { date '+%Y-%m-%d %H:%M:%S'; }
+
+# `wsl.exe -- bash -lc` launched from a Windows host (the Startup VBS) does NOT
+# get the Windows-interop dirs on PATH the way an interactive WSL shell does, so
+# powershell.exe (which `watchfire widget` needs to open the Edge window) isn't
+# found. Add them explicitly — same fix as the systemd unit.
+export PATH="$PATH:@WIN_INTEROP_PATH@"
+
+echo "$(ts) boot-widget fired | watchfire=$(command -v watchfire >/dev/null && echo yes || echo NO) powershell.exe=$(command -v powershell.exe >/dev/null && echo yes || echo NO)" >>"$LOG"
+
+for i in $(seq 1 60); do
+    ss -tln 2>/dev/null | grep -q ':4173' && break
+    sleep 1
+done
+echo "$(ts) port :4173 ready after ${i}s -> launching widget" >>"$LOG"
+
+watchfire widget >>"$LOG" 2>&1
+rc=$?   # capture FIRST: a $(ts) command substitution would reset $? to date's status
+echo "$(ts) watchfire widget returned exit=$rc" >>"$LOG"
