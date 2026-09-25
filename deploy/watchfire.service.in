@@ -1,0 +1,30 @@
+# Template for the systemd user unit. Rendered by deploy/install.sh into
+# ~/.config/systemd/user/watchfire.service — edit this file, not the output,
+# then re-run the installer.
+[Unit]
+Description=Watchfire session widget server
+Documentation=https://github.com/knikolaj/watchfire
+# localhost-only server; no real network dependency, but order after network.
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=@WF_DIR@/server
+# Windows-interop dirs on PATH so the server can spawn powershell.exe (focus a
+# WT tab) and wt.exe (resume a session). systemd --user starts with a bare Linux
+# PATH; an interactive shell inherits these from WSL's /init, but a boot-time
+# service does not — without them the widget's "open session" icon silently
+# fails (spawn ENOENT). The installer fills in the user-specific WindowsApps dir.
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:@WIN_INTEROP_PATH@
+# systemd --user does not read ~/.bashrc / nvm, so node must be an absolute path.
+# The installer takes it from the node on PATH at install time: after upgrading
+# node via nvm, re-run deploy/install.sh.
+ExecStart=@NODE_BIN@ index.js
+Restart=on-failure
+RestartSec=2
+# Keep `watchfire logs` working by writing to the same file the CLI tails.
+StandardOutput=append:@HOME@/.watchfire/server.log
+StandardError=append:@HOME@/.watchfire/server.log
+
+[Install]
+WantedBy=default.target

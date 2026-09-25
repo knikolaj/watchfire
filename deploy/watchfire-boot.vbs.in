@@ -1,0 +1,23 @@
+' Watchfire autostart, run from the Windows Startup folder at logon.
+' Rendered by deploy/install.sh (which fills in the WSL distro name) — edit the
+' template deploy/watchfire-boot.vbs.in, then re-run the installer.
+'
+' The catch: Startup fires at logon, often BEFORE the WSL service (LxssManager)
+' is ready — so a single wsl.exe call fails silently and the widget never opens
+' (the server still comes up later via systemd when WSL boots for another
+' reason, but the widget doesn't). So: retry a trivial wsl.exe until WSL answers
+' (which also boots the distro -> systemd + linger start the server), then hand
+' off to boot-widget.sh, which waits for :4173 and opens the widget window.
+'
+' Run(cmd, 0, True)  = hidden window, wait, return exit code.
+' Run(cmd, 0, False) = hidden window, don't wait (fire-and-forget).
+Set sh = CreateObject("WScript.Shell")
+
+n = 0
+Do
+    If sh.Run("wsl.exe -d @DISTRO@ -- /bin/true", 0, True) = 0 Then Exit Do
+    n = n + 1
+    WScript.Sleep 5000            ' WSL not ready yet — wait and retry (cap ~5 min)
+Loop While n < 60
+
+sh.Run "wsl.exe -d @DISTRO@ -- bash -lc ""~/.watchfire/boot-widget.sh""", 0, False
