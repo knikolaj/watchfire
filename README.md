@@ -105,6 +105,16 @@ has ever hosted, active and archived (read from `~/.claude/projects/<dir>/`).
 
 ## Implementation notes
 
+- **Local-only by design.** The server has no authentication, yet `/resume`
+  opens Windows Terminal tabs and launches agents, and the WebSocket streams
+  live session state. So it binds to `127.0.0.1` (WSL still forwards it to
+  Windows' `localhost`; under `networkingMode=mirrored` a wildcard bind would
+  expose it to every Wi-Fi the laptop joins), rejects any request whose `Host`
+  isn't `localhost`/`127.0.0.1` (DNS rebinding) or whose `Origin` is foreign
+  (cross-site requests — including WebSocket handshakes, which CORS does not
+  cover), and only passes a strict-UUID `session_id` to `wt.exe`, which splits
+  its command line on `;`. See `server/guard.js`; don't loosen any of these
+  without a replacement.
 - **Sub-agent fix.** Sub-agents fire a Notification before each tool, which
   used to leave the session stuck on `waiting_input` even after the user
   approved. We hook `PreToolUse` and flip back to `working` once the tool

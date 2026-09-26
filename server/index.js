@@ -18,6 +18,7 @@ import { WebSocketServer } from "ws";
 import { listChatsForCwd, listAllChats } from "./chats.js";
 import { prePruneBoot, pruneOrphanedSessions, pruneSupersededSessions } from "./prune.js";
 import { remapCwd } from "./config.js";
+import { HOST, isAllowedRequest, isValidSessionId } from "./guard.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WEB_DIR = path.resolve(__dirname, "..", "web");
@@ -55,7 +56,9 @@ function focusWindowsTerminal(tabName) {
 // login shell that runs resume_session.sh, which cd's to the session's cwd and
 // exec's `claude --resume <id>` / `codex resume <id>`. agent/cwd/id go through
 // as positional args — the only multi-word token wt sees is the fixed
-// `exec "$0" "$@"`, so paths/ids are never re-parsed by a shell (injection-safe).
+// `exec "$0" "$@"`, so paths/ids are never re-parsed by a shell. That does not
+// cover wt.exe itself, which splits its command line on `;`: cwd and name are
+// base64 for that reason, and the id is gated to a strict UUID in /resume.
 function resumeSession({ agent, cwd, sessionId, name }) {
   return new Promise((resolve) => {
     // wt drops quoting around sub-command args, so a value with spaces (a cwd
@@ -110,6 +113,11 @@ function readBody(req) {
 }
 
 async function handleRequest(req, res) {
+  // Reject cross-site and DNS-rebinding requests before any handler runs —
+  // see guard.js.
+  if (!isAllowedRequest(req.headers, PORT)) {
+    res.writeHead(403); return res.end("forbidden");
+  }
   if (req.method === "POST" && req.url === "/focus") {
     let body = {};
     try { body = await readBody(req); } catch {}
@@ -135,6 +143,10 @@ async function handleRequest(req, res) {
     if (!sessionId) {
       res.writeHead(400, { "content-type": "application/json" });
       return res.end(JSON.stringify({ ok: false, err: "missing session_id" }));
+    }
+    if (!isValidSessionId(sessionId)) {
+      res.writeHead(400, { "content-type": "application/json" });
+      return res.end(JSON.stringify({ ok: false, err: "bad session_id" }));
     }
     const result = await resumeSession({ agent, cwd, sessionId, name });
     res.writeHead(200, { "content-type": "application/json" });
@@ -180,7 +192,12 @@ const server = http.createServer(handleRequest);
 
 // --- WebSocket: push session state to browser ------------------------------
 
-const wss = new WebSocketServer({ server });
+// verifyClient runs the same guard on the handshake: WebSockets are not covered
+// by CORS, so without it any open tab could read the live session stream.
+const wss = new WebSocketServer({
+  server,
+  verifyClient: ({ req }) => isAllowedRequest(req.headers, PORT),
+});
 const clients = new Set();
 
 wss.on("connection", async (ws) => {
@@ -341,7 +358,9 @@ setInterval(async () => {
   if (s) console.log(`pruned ${s} superseded session(s)`);
 }, 5 * 60 * 1000);
 
-server.listen(PORT, () => {
-  console.log(`watchfire: http://localhost:${PORT}`);
+// Loopback only: WSL still forwards it to Windows' localhost (NAT relay, or
+// natively under mirrored networking), but nothing on the LAN can reach it.
+server.listen(PORT, HOST, () => {
+  console.log(`watchfire: http://localhost:${PORT}  (bound to ${HOST})`);
   console.log(`watching: ${STATE_DIR}`);
 });
