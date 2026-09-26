@@ -87,13 +87,13 @@ test("extractCodexTranscriptMeta uses session_meta.payload.cwd", async () => {
   const dir = await tmpDir("codex-meta");
   const fp = path.join(dir, "rollout-2026-01-01T00-00-00-019d1234-5678-7abc-9def-0123456789ab.jsonl");
   await writeJsonl(fp, [
-    { type: "session_meta",  payload: { cwd: "/home/nj/proj" } },
+    { type: "session_meta",  payload: { cwd: "/home/u/proj" } },
     { type: "response_item", payload: { type: "message", role: "user",
-        content: [{ type: "input_text", text: "<environment_context><cwd>/home/nj/proj</cwd></environment_context>" }] } },
+        content: [{ type: "input_text", text: "<environment_context><cwd>/home/u/proj</cwd></environment_context>" }] } },
     { type: "event_msg", payload: { type: "user_message", message: "real first prompt" } },
   ]);
   const meta = await extractCodexTranscriptMeta(fp);
-  assert.equal(meta.cwd, "/home/nj/proj");
+  assert.equal(meta.cwd, "/home/u/proj");
   assert.equal(meta.first_prompt, "real first prompt");
   assert.equal(meta.session_id, "019d1234-5678-7abc-9def-0123456789ab");
   assert.equal(meta.agent, "codex");

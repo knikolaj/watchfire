@@ -155,8 +155,8 @@ test("renderHistoryByTimeHtml shows project tag inline next to each row", () => 
   // "by time" view shows shortPath(cwd) so the user knows which project
   // each chat belonged to without scrolling back to a group header.
   const html = renderHistoryByTimeHtml([
-    c({ name: "n", cwd: "/home/nj/projects/palisade/self-replication",
+    c({ name: "n", cwd: "/home/u/projects/acme/data-pipeline",
         last_modified: MS(NOW - 60) }),
   ], NOW);
-  assert.match(html, /palisade\/self-replication/);
+  assert.match(html, /acme\/data-pipeline/);
 });

@@ -15,7 +15,7 @@ def test_daily_summary_cwd_writes_nothing(run_hook, state_dir):
     out = run_hook({
         "session_id": "s1",
         "hook_event_name": "UserPromptSubmit",
-        "cwd": "/home/nj/.claude-daily-summary/2026-05",
+        "cwd": "/home/u/.claude-daily-summary/2026-05",
         "prompt": "summarize",
     })
     assert out is None
@@ -26,7 +26,7 @@ def test_meeting_summary_cwd_writes_nothing(run_hook, state_dir):
     out = run_hook({
         "session_id": "s1",
         "hook_event_name": "UserPromptSubmit",
-        "cwd": "/home/nj/.claude-meeting-summaries/2026-05",
+        "cwd": "/home/u/.claude-meeting-summaries/2026-05",
         "prompt": "summarize",
     })
     assert out is None
@@ -47,18 +47,21 @@ def test_wsl_drive_cwd_is_lowercased(run_hook):
     s = run_hook({
         "session_id": "s1",
         "hook_event_name": "SessionStart",
-        "cwd": "/mnt/c/Users/23738",
+        "cwd": "/mnt/c/Users/Alice",
     })
-    assert s["cwd"] == "/mnt/c/users/23738"
+    # Only the drive letter and the `Users` literal are folded — the account
+    # segment keeps its case. That's the whole difference Codex introduces
+    # (/mnt/c/Users -> /mnt/c/users); folding further would be guesswork.
+    assert s["cwd"] == "/mnt/c/users/Alice"
 
 
 def test_wsl_non_drive_cwd_is_left_alone(run_hook):
     s = run_hook({
         "session_id": "s1",
         "hook_event_name": "SessionStart",
-        "cwd": "/home/nj/projects/Palisade/Self-Replication",
+        "cwd": "/home/u/projects/Acme/Mixed-Case",
     })
-    assert s["cwd"] == "/home/nj/projects/Palisade/Self-Replication"
+    assert s["cwd"] == "/home/u/projects/Acme/Mixed-Case"
 
 
 # --- model_limit ----------------------------------------------------------
@@ -116,7 +119,7 @@ def test_agent_tty_rejects_non_tty(monkeypatch):
     escapes into a file. /dev/tty itself is rejected too (we want the concrete
     pts, and opening /dev/tty from the hook fails with ENXIO anyway)."""
     import os, emit_state
-    monkeypatch.setattr(os, "readlink", lambda p: "/home/nj/session.log")
+    monkeypatch.setattr(os, "readlink", lambda p: "/home/u/session.log")
     assert emit_state.agent_tty(123) is None
     monkeypatch.setattr(os, "readlink", lambda p: "/dev/tty")
     assert emit_state.agent_tty(123) is None

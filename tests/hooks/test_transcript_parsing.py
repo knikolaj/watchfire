@@ -124,13 +124,13 @@ def test_extract_claude_meta_no_match_returns_blanks(tmp_path):
 
 CODEX_TRANSCRIPT = "\n".join([
     json.dumps({"type": "session_meta", "payload": {
-        "id": "019d-...", "cwd": "/home/nj/proj"}}),
+        "id": "019d-...", "cwd": "/home/u/proj"}}),
     # The first user 'message' is the synthetic environment_context — must
     # NOT be picked as first_prompt.
     json.dumps({"type": "response_item", "payload": {
         "type": "message", "role": "user",
         "content": [{"type": "input_text",
-                     "text": "<environment_context><cwd>/home/nj/proj</cwd></environment_context>"}],
+                     "text": "<environment_context><cwd>/home/u/proj</cwd></environment_context>"}],
     }}),
     json.dumps({"type": "event_msg", "payload": {
         "type": "user_message", "message": "real first prompt"}}),
@@ -192,7 +192,7 @@ def test_codex_does_not_write_tab_title(run_hook):
     s = run_hook({
         "session_id": "cx-notitle",
         "hook_event_name": "UserPromptSubmit",
-        "cwd": "/home/nj/projects/personal/earbuddy",
+        "cwd": "/home/u/projects/personal/myapp",
         "prompt": "hi",
     }, agent="codex")
     assert "_tab_title" not in s

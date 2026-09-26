@@ -49,19 +49,19 @@ test("listAllChats merges claude + codex from all cwds", async () => {
 });
 
 test("listAllChats reads cwd from the claude transcript itself, not the flattened dir name", async () => {
-  // Reverse-flattening `-home-nj-projects-palisade-self-replication` to a
+  // Reverse-flattening `-home-u-projects-acme-data-pipeline` to a
   // path loses the hyphen vs slash distinction. The transcript's `cwd`
-  // field is the source of truth — `self-replication` (one segment), not
+  // field is the source of truth — `data-pipeline` (one segment), not
   // `self/replication` (two).
   const claudeDir = await tmpDir("ca-claude-cwd");
   await writeJsonl(
-    path.join(claudeDir, "-home-nj-projects-palisade-self-replication", "s.jsonl"),
-    [{ type: "user", cwd: "/home/nj/projects/palisade/self-replication",
+    path.join(claudeDir, "-home-u-projects-acme-data-pipeline", "s.jsonl"),
+    [{ type: "user", cwd: "/home/u/projects/acme/data-pipeline",
        message: { content: "x" } }],
   );
   const out = await listAllChats({ claudeDir, codexDir: await emptyCodexDir(), codexCache: freshCache() });
   assert.equal(out.length, 1);
-  assert.equal(out[0].cwd, "/home/nj/projects/palisade/self-replication");
+  assert.equal(out[0].cwd, "/home/u/projects/acme/data-pipeline");
 });
 
 test("listAllChats falls back to reverse-flattened name when transcript has no cwd field", async () => {
@@ -101,9 +101,9 @@ test("listAllChats skips cron-sandbox project dirs (daily-summary, meeting-summa
   const claudeDir = await tmpDir("ca-claude-cron");
   // Two cron-sandbox dirs and one real one.
   for (const dir of [
-    "-home-nj--claude-daily-summary-2026-05",
-    "-home-nj--claude-meeting-summaries-2026-05",
-    "-home-nj-projects-real",
+    "-home-u--claude-daily-summary-2026-05",
+    "-home-u--claude-meeting-summaries-2026-05",
+    "-home-u-projects-real",
   ]) {
     await writeJsonl(
       path.join(claudeDir, dir, "s.jsonl"),
