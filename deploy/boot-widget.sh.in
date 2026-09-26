@@ -29,3 +29,14 @@ echo "$(ts) port :4173 ready after ${i}s -> launching widget" >>"$LOG"
 watchfire widget >>"$LOG" 2>&1
 rc=$?   # capture FIRST: a $(ts) command substitution would reset $? to date's status
 echo "$(ts) watchfire widget returned exit=$rc" >>"$LOG"
+
+# Stay attached for the whole Windows session. WSL powers the distro off ~30s
+# after its last wsl.exe client disconnects — systemd services and linger do NOT
+# count as clients. Without this, the server started by systemd was shut down
+# half a minute after autostart, leaving the widget pointing at a dead port
+# (clicks, resume included, silently went nowhere) until opening a terminal
+# happened to boot WSL again. This script runs under the hidden wsl.exe the
+# Startup VBS launched, so turning it into a sleeper keeps that client — and
+# with it the distro and the server — alive. Named so it's findable in `ps`.
+echo "$(ts) holding the WSL session open (watchfire-keepalive)" >>"$LOG"
+exec -a watchfire-keepalive sleep infinity
