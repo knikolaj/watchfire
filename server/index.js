@@ -63,16 +63,40 @@ function resumeSession({ agent, cwd, sessionId, name }) {
     // into multiple args. base64 the free-text values — no spaces/quotes to
     // mangle — and let the helper decode them.
     const b64 = (s) => Buffer.from(String(s || ""), "utf8").toString("base64");
-    // -w last: add a tab to the most-recently-used Terminal window instead of
-    // spawning a fresh window each time (falls back to a new window if none).
-    const args = [
-      "-w", "last", "nt", "wsl.exe", "-e", "bash", "-lic",
+    const tail = [
+      "nt", "wsl.exe", "-e", "bash", "-lic",
       'exec "$0" "$@"', RESUME_SCRIPT, agent, b64(cwd), sessionId, b64(name),
     ];
-    const p = spawn("wt.exe", args, { stdio: "ignore", detached: true });
-    p.on("error", () => resolve({ ok: false, err: "spawn_failed" }));
-    // wt.exe is a launcher that returns immediately — a clean spawn is success.
-    p.on("spawn", () => { p.unref(); resolve({ ok: true }); });
+
+    // A clean spawn says nothing about whether a tab actually opened: wt.exe
+    // hands the command to a running Terminal and exits, so it can fail *after*
+    // spawning and we'd never know. Treating spawn as success is why a failed
+    // resume looks like the click doing nothing at all. Watch the exit code and
+    // log the output instead.
+    const run = (args) => new Promise((done) => {
+      const p = spawn("wt.exe", args, { stdio: ["ignore", "pipe", "pipe"], detached: true });
+      let out = "", settled = false;
+      const finish = (r) => { if (!settled) { settled = true; done(r); } };
+      p.stdout.on("data", (d) => { out += d; });
+      p.stderr.on("data", (d) => { out += d; });
+      p.on("error", (e) => finish({ ok: false, err: "spawn_failed", msg: e.message }));
+      p.on("close", (code) => finish(
+        code === 0 ? { ok: true } : { ok: false, err: `wt_exit_${code}`, msg: out.trim() }));
+      // With no Terminal window open, wt.exe *becomes* the new window and never
+      // exits — that is success, not a hang, so stop waiting and report ok.
+      setTimeout(() => { p.unref(); finish({ ok: true }); }, 3000);
+    });
+
+    // -w last: add a tab to the most-recently-used Terminal window instead of
+    // spawning a fresh one. If that fails — nothing to attach to, or Terminal
+    // refuses the hand-off — fall back to letting wt open its own window.
+    run(["-w", "last", ...tail]).then(async (r) => {
+      if (r.ok) return resolve({ ok: true });
+      console.error(`[resume] wt -w last failed (${r.err})${r.msg ? `: ${r.msg}` : ""} — retrying in a new window`);
+      const f = await run(tail);
+      if (!f.ok) console.error(`[resume] fallback failed (${f.err})${f.msg ? `: ${f.msg}` : ""}`);
+      resolve(f.ok ? { ok: true } : { ok: false, err: f.err });
+    });
   });
 }
 
