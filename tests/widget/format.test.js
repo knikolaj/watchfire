@@ -11,9 +11,9 @@ import {
 // --- shortPath ------------------------------------------------------------
 
 test("shortPath returns last two segments", () => {
-  assert.equal(shortPath("/home/nj/projects/palisade/self-replication"),
-               "palisade/self-replication");
-  assert.equal(shortPath("/mnt/c/users/23738"), "users/23738");
+  assert.equal(shortPath("/home/u/projects/acme/data-pipeline"),
+               "acme/data-pipeline");
+  assert.equal(shortPath("/mnt/c/users/alice"), "users/alice");
 });
 
 test("shortPath handles short and missing paths", () => {

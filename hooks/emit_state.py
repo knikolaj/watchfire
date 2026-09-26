@@ -464,7 +464,7 @@ def main() -> int:
     # Lowercase only the WSL drive prefix, not the whole path (case-sensitive elsewhere).
     if cwd.startswith("/mnt/"):
         parts = cwd.split("/")
-        # parts = ['', 'mnt', 'c', 'Users', '23738']  -> lowercase parts[2] AND parts[3]
+        # parts = ['', 'mnt', 'c', 'Users', 'Alice']  -> lowercase parts[2] AND parts[3]
         if len(parts) >= 4:
             parts[2] = parts[2].lower()
             parts[3] = parts[3].lower()

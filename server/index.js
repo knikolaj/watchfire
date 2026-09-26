@@ -90,8 +90,8 @@ async function handleRequest(req, res) {
     let body = {};
     try { body = await readBody(req); } catch {}
     // Prefer the user-set name (set via /rename — Claude pushes that to the
-    // terminal title). Fallback to the last cwd segment ("23738",
-    // "self-replication", …) — usually present in default WT tab titles.
+    // terminal title). Fallback to the last cwd segment ("alice",
+    // "my-project", …) — usually present in default WT tab titles.
     const lastCwd = body.cwd ? String(body.cwd).split("/").filter(Boolean).pop() : "";
     const tabName = body.name || lastCwd || "";
     const result = await focusWindowsTerminal(tabName);

@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/home/nj/projects/personal/watchfire/hooks/emit_state.py --agent codex"
+            "command": "/path/to/watchfire/hooks/emit_state.py --agent codex"
           }
         ]
       }
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/home/nj/projects/personal/watchfire/hooks/emit_state.py --agent codex"
+            "command": "/path/to/watchfire/hooks/emit_state.py --agent codex"
           }
         ]
       }
@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/home/nj/projects/personal/watchfire/hooks/emit_state.py --agent codex"
+            "command": "/path/to/watchfire/hooks/emit_state.py --agent codex"
           }
         ]
       }
