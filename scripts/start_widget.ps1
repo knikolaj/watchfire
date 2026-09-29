@@ -125,6 +125,27 @@ function Set-WidgetTopmost([IntPtr]$hwnd) {
     [void][WinTop]::SetForegroundWindow($hwnd)
 }
 
+# Taskbar icon: handed to a hidden, long-lived icon_keeper.ps1 rather than set
+# here. An icon loaded with LoadImage belongs to the loading process and is
+# destroyed when it exits, so setting it from this short-lived launcher left the
+# window holding a dead handle — the taskbar then showed Edge's icon whenever it
+# didn't happen to copy ours before we exited. The keeper owns the handles for
+# the window's lifetime, re-applies them if Edge resets the icon, and exits when
+# the window closes; a mutex keeps it to one keeper per window.
+function Start-IconKeeper([IntPtr]$hwnd) {
+    $src = Join-Path $PSScriptRoot "watchfire.ico"
+    if (-not (Test-Path $src)) { Write-Log "watchfire.ico missing next to launcher; icon not overridden"; return }
+    # Local copy: the taskbar reads the relaunch icon on its own schedule, and a
+    # \\wsl.localhost path is unreadable whenever WSL isn't running.
+    $ico = Join-Path $LogDir "watchfire.ico"
+    try { Copy-Item -LiteralPath $src -Destination $ico -Force } catch { $ico = $src }
+    $keeper = Join-Path $PSScriptRoot "icon_keeper.ps1"
+    Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$keeper`"",
+        '-Hwnd', [int64]$hwnd, '-Ico', "`"$ico`"", '-LogFile', "`"$LogFile`"") | Out-Null
+    Write-Log "icon keeper requested for hwnd=$hwnd"
+}
+
 # Reuse an existing widget window if one is still around. Edge keeps the
 # profile's process alive after the window is closed; a fresh launch then just
 # hands off to that singleton and exits, sometimes without ever showing a
@@ -136,6 +157,7 @@ $existing = Get-Process -Name "msedge" -ErrorAction SilentlyContinue |
 if ($existing) {
     Write-Log ("reuse existing hwnd=" + $existing.MainWindowHandle + " title=[" + $existing.MainWindowTitle + "]")
     Set-WidgetTopmost $existing.MainWindowHandle
+    Start-IconKeeper $existing.MainWindowHandle
     Write-Log "reuse done -> exit 0"
     exit 0
 }
@@ -245,100 +267,7 @@ if ($hwnd -eq [IntPtr]::Zero) {
 Set-WidgetTopmost $hwnd
 Write-Log "topmost + on-screen applied to hwnd=$hwnd"
 
-# Taskbar icon override.
-#
-# Edge --app windows inherit Edge's AppUserModelId (AUMID), so Windows groups
-# the widget under Edge's taskbar button and paints Edge's icon. Edge used to
-# derive a per-app icon from the page favicon, but a 2026 Edge update dropped
-# that for plain --app windows, leaving the generic Edge icon. (The in-window
-# title-bar icon still comes from the favicon and is unaffected.)
-#
-# Fix it at the Windows-shell level, independent of Edge's behavior:
-#   1. WM_SETICON  → sets the Alt+Tab / title-bar icon from our .ico.
-#   2. Give the window our OWN AUMID + RelaunchIconResource via its property
-#      store, so the taskbar ungroups it from Edge and paints our icon.
-Add-Type -TypeDefinition @"
-using System;
-using System.Runtime.InteropServices;
-
-public static class WfIcon {
-    [DllImport("user32.dll")]
-    static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    static extern IntPtr LoadImage(IntPtr hinst, string name, uint type, int cx, int cy, uint load);
-
-    const uint WM_SETICON = 0x0080, IMAGE_ICON = 1, LR_LOADFROMFILE = 0x0010;
-    static readonly IntPtr ICON_SMALL = new IntPtr(0), ICON_BIG = new IntPtr(1);
-
-    [ComImport, Guid("886d8eeb-8cf2-4446-8d02-cdba1dbdcf99"),
-     InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    interface IPropertyStore {
-        int GetCount(out uint c);
-        int GetAt(uint i, out PROPERTYKEY k);
-        int GetValue(ref PROPERTYKEY k, out PROPVARIANT v);
-        int SetValue(ref PROPERTYKEY k, ref PROPVARIANT v);
-        int Commit();
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    struct PROPERTYKEY { public Guid fmtid; public uint pid; }
-
-    // Large enough for the PROPVARIANT union on both x86 (16B) and x64 (24B).
-    [StructLayout(LayoutKind.Sequential)]
-    struct PROPVARIANT { public ushort vt, r1, r2, r3; public IntPtr p, p2; }
-
-    [DllImport("shell32.dll")]
-    static extern int SHGetPropertyStoreForWindow(IntPtr hwnd, ref Guid riid, out IPropertyStore pv);
-    [DllImport("ole32.dll")]
-    static extern int PropVariantClear(ref PROPVARIANT pv);
-
-    const ushort VT_LPWSTR = 31;
-
-    static Guid IID_IPropertyStore = new Guid("886d8eeb-8cf2-4446-8d02-cdba1dbdcf99");
-    // PKEY_AppUserModel_* all share this fmtid; the pid selects the property.
-    static Guid FMT = new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3");
-
-    static void SetStr(IPropertyStore store, uint pid, string val) {
-        var key = new PROPERTYKEY { fmtid = FMT, pid = pid };
-        // Build a VT_LPWSTR PROPVARIANT by hand — InitPropVariantFromString is
-        // an inline header helper and isn't exported from propsys.dll on every
-        // Windows build. The union's first pointer slot holds the LPWSTR.
-        var pv = new PROPVARIANT { vt = VT_LPWSTR, p = Marshal.StringToCoTaskMemUni(val) };
-        store.SetValue(ref key, ref pv);   // store makes its own copy
-        PropVariantClear(ref pv);          // frees our LPWSTR allocation
-    }
-
-    public static void Apply(IntPtr hwnd, string ico, string aumid, string name) {
-        IntPtr big   = LoadImage(IntPtr.Zero, ico, IMAGE_ICON, 32, 32, LR_LOADFROMFILE);
-        IntPtr small = LoadImage(IntPtr.Zero, ico, IMAGE_ICON, 16, 16, LR_LOADFROMFILE);
-        if (big   != IntPtr.Zero) SendMessage(hwnd, WM_SETICON, ICON_BIG,   big);
-        if (small != IntPtr.Zero) SendMessage(hwnd, WM_SETICON, ICON_SMALL, small);
-
-        IPropertyStore store;
-        if (SHGetPropertyStoreForWindow(hwnd, ref IID_IPropertyStore, out store) == 0 && store != null) {
-            SetStr(store, 5, aumid);           // PKEY_AppUserModel_ID
-            SetStr(store, 3, ico + ",0");      // PKEY_AppUserModel_RelaunchIconResource
-            if (!string.IsNullOrEmpty(name))
-                SetStr(store, 4, name);        // PKEY_AppUserModel_RelaunchDisplayNameResource
-            store.Commit();
-            Marshal.ReleaseComObject(store);
-        }
-    }
-}
-"@ | Out-Null
-
-$IcoPath = Join-Path $PSScriptRoot "watchfire.ico"
-if (Test-Path $IcoPath) {
-    try {
-        [WfIcon]::Apply($hwnd, $IcoPath, "Watchfire.Widget", "Watchfire")
-        Write-Log "taskbar icon + AUMID applied"
-    } catch {
-        Write-Log "taskbar icon apply FAILED: $_"
-        Write-Warning "Could not apply custom taskbar icon: $_"
-    }
-} else {
-    Write-Warning "watchfire.ico not found next to start_widget.ps1; taskbar icon not overridden."
-}
+Start-IconKeeper $hwnd
 
 # Diagnostic only — run with -Verbose to see it; keeps the console clean.
 Write-Verbose "ok hwnd=$hwnd"
