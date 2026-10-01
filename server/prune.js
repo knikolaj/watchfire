@@ -44,6 +44,36 @@ function _defaultReadCmdline(pid) {
   catch { return null; }
 }
 
+/** Is `pid` a host that serves *several* agent sessions at once? Codex can run
+ *  every session inside one `codex app-server` daemon — the terminal tabs are
+ *  thin clients — so the hook, walking up from itself, records the daemon's pid
+ *  for all of them. For such a pid, "one pid = one tab" no longer holds. */
+export function isSessionHost(pid, readCmdline = _defaultReadCmdline) {
+  const cmd = pid ? readCmdline(pid) : null;
+  return !!cmd && cmd.includes("app-server");
+}
+
+/** Does `pid` hold `file` open? A session host keeps the rollout of every
+ *  session it is serving open, which is the per-session liveness signal a
+ *  shared, always-alive pid can't give. */
+export function holdsFileOpen(pid, file, readFdTargets = _defaultReadFdTargets) {
+  if (!pid || !file) return false;
+  return readFdTargets(pid).includes(file);
+}
+
+function _defaultReadFdTargets(pid) {
+  try {
+    const dir = `/proc/${pid}/fd`;
+    return fssync.readdirSync(dir).map(fd => {
+      try { return fssync.readlinkSync(`${dir}/${fd}`); } catch { return ""; }
+    });
+  } catch { return []; }
+}
+
+// A brand-new session on a host may not have its rollout open yet (the file can
+// appear only with the first turn), so don't call it gone straight away.
+const HOST_SESSION_GRACE_SEC = 10 * 60;
+
 /** Delete state files whose `last_event_at` is older than the kernel
  *  boot time. Returns the number of files removed. */
 export async function prePruneBoot(stateDir, opts = {}) {
@@ -70,6 +100,9 @@ export async function prePruneBoot(stateDir, opts = {}) {
  *  prePruneBoot covers those at startup. Returns the number removed. */
 export async function pruneOrphanedSessions(stateDir, opts = {}) {
   const isAlive = opts.isAlive ?? isClaudeProcessAlive;
+  const isHost = opts.isHost ?? isSessionHost;
+  const holdsOpen = opts.holdsOpen ?? holdsFileOpen;
+  const now = opts.now ?? Date.now() / 1000;
   let removed = 0;
   const files = (await fs.readdir(stateDir).catch(() => []))
     .filter(f => f.endsWith(".json"));
@@ -78,7 +111,13 @@ export async function pruneOrphanedSessions(stateDir, opts = {}) {
     try {
       const s = JSON.parse(await fs.readFile(fp, "utf-8"));
       if (!s.pid) continue;
-      if (isAlive(s.pid) === false) {
+      const alive = isAlive(s.pid);
+      // A session host outlives the tabs it serves; the session is gone once
+      // the host no longer holds its rollout open (past the start-up grace).
+      const closedOnHost = alive !== false && isHost(s.pid)
+        && now - (s.last_event_at || 0) > HOST_SESSION_GRACE_SEC
+        && !holdsOpen(s.pid, s.transcript_path);
+      if (alive === false || closedOnHost) {
         await fs.unlink(fp);
         removed++;
       }
@@ -96,8 +135,13 @@ export async function pruneOrphanedSessions(stateDir, opts = {}) {
  *  continues under a NEW session_id on the SAME pid. The stub's pid stays
  *  alive (same process), so pruneOrphanedSessions never removes it, and the
  *  widget shows a phantom nameless row per resume. One tab = one live session,
- *  so keep the freshest per pid and drop the rest. Returns the number removed. */
+ *  so keep the freshest per pid and drop the rest. Returns the number removed.
+ *
+ *  Exception: a session host (see isSessionHost) legitimately carries many
+ *  sessions on one pid — pruning those groups deleted every Codex session but
+ *  the freshest. Their lifetime is handled by pruneOrphanedSessions instead. */
 export async function pruneSupersededSessions(stateDir, opts = {}) {
+  const isHost = opts.isHost ?? isSessionHost;
   const files = (await fs.readdir(stateDir).catch(() => []))
     .filter(f => f.endsWith(".json"));
   // Group readable state files by pid.
@@ -111,8 +155,10 @@ export async function pruneSupersededSessions(stateDir, opts = {}) {
     } catch { /* unreadable — leave it */ }
   }
   let removed = 0;
-  for (const group of byPid.values()) {
+  for (const [pid, group] of byPid) {
     if (group.length < 2) continue;
+    // Several live sessions on one session host is normal, not a stale stub.
+    if (isHost(pid)) continue;
     // Keep the freshest by last_event_at; delete the older siblings.
     group.sort((a, b) => b.at - a.at);
     for (const { fp } of group.slice(1)) {

@@ -15,6 +15,8 @@ import {
   pruneOrphanedSessions,
   pruneSupersededSessions,
   isClaudeProcessAlive,
+  isSessionHost,
+  holdsFileOpen,
   getSystemBootTimeSec,
 } from "../../server/prune.js";
 
@@ -174,4 +176,66 @@ test("pruneSupersededSessions is a no-op when every pid is unique", async () => 
   const removed = await pruneSupersededSessions(dir);
   assert.equal(removed, 0);
   assert.deepEqual(await listSessionIds(dir), ["a", "b"]);
+});
+
+// --- session hosts (Codex app-server daemon) -------------------------------
+// Codex can run every session inside one `codex app-server` daemon, so all of
+// them record the daemon's pid. "One pid = one tab" no longer holds there.
+
+const HOST = 500;
+const isHostPid = (pid) => pid === HOST;
+
+test("isSessionHost recognises a codex app-server daemon by its cmdline", () => {
+  const cmd = { 500: "codex\0app-server\0--listen\0unix://", 7: "claude\0--resume" };
+  const read = (pid) => cmd[pid] ?? null;
+  assert.equal(isSessionHost(500, read), true);
+  assert.equal(isSessionHost(7, read), false);
+  assert.equal(isSessionHost(9, read), false, "missing process");
+  assert.equal(isSessionHost(null, read), false);
+});
+
+test("holdsFileOpen matches an exact open-file target", () => {
+  const fds = { 500: ["/dev/null", "/r/rollout-a.jsonl"] };
+  const read = (pid) => fds[pid] ?? [];
+  assert.equal(holdsFileOpen(500, "/r/rollout-a.jsonl", read), true);
+  assert.equal(holdsFileOpen(500, "/r/rollout-b.jsonl", read), false);
+  assert.equal(holdsFileOpen(500, undefined, read), false, "no transcript recorded");
+});
+
+test("pruneSupersededSessions leaves every session on a session host alone", async () => {
+  const dir = await tmpDir("prune-host-sup");
+  await writeState(dir, "c1", { pid: HOST, last_event_at: 100 });
+  await writeState(dir, "c2", { pid: HOST, last_event_at: 200 });
+  await writeState(dir, "c3", { pid: HOST, last_event_at: 300 });
+  const n = await pruneSupersededSessions(dir, { isHost: isHostPid });
+  assert.equal(n, 0);
+  assert.deepEqual(await listSessionIds(dir), ["c1", "c2", "c3"]);
+});
+
+test("pruneSupersededSessions still dedups an ordinary pid next to a host", async () => {
+  const dir = await tmpDir("prune-host-mixed");
+  await writeState(dir, "stub",  { pid: 7,    last_event_at: 100 });
+  await writeState(dir, "live",  { pid: 7,    last_event_at: 200 });
+  await writeState(dir, "cdx-a", { pid: HOST, last_event_at: 100 });
+  await writeState(dir, "cdx-b", { pid: HOST, last_event_at: 200 });
+  await pruneSupersededSessions(dir, { isHost: isHostPid });
+  assert.deepEqual(await listSessionIds(dir), ["cdx-a", "cdx-b", "live"]);
+});
+
+test("pruneOrphanedSessions drops a host session whose rollout the host no longer holds", async () => {
+  const dir = await tmpDir("prune-host-orphan");
+  const now = 10_000;
+  const old = now - 3600;
+  await writeState(dir, "open",   { pid: HOST, last_event_at: old, transcript_path: "/r/open.jsonl" });
+  await writeState(dir, "closed", { pid: HOST, last_event_at: old, transcript_path: "/r/closed.jsonl" });
+  await writeState(dir, "fresh",  { pid: HOST, last_event_at: now - 30, transcript_path: "/r/new.jsonl" });
+  const n = await pruneOrphanedSessions(dir, {
+    now,
+    isAlive: () => true,                       // the daemon itself never dies
+    isHost: isHostPid,
+    holdsOpen: (pid, f) => f === "/r/open.jsonl",
+  });
+  assert.equal(n, 1);
+  // "fresh" survives on the start-up grace even though its rollout isn't open yet.
+  assert.deepEqual(await listSessionIds(dir), ["fresh", "open"]);
 });
