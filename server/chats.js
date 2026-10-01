@@ -128,6 +128,9 @@ async function listAllClaudeChats(opts = {}) {
         name: meta.name || "",
         first_prompt: meta.first_prompt || "",
         last_modified: stat.mtimeMs,
+        // Launch mode (see extractClaudeTranscriptMeta) — lets the widget hide
+        // headless service sessions the way it hides tool-spawned Codex ones.
+        source: meta.source || "",
       };
       if (meta.context_tokens != null && meta.context_limit) {
         row.context_tokens = meta.context_tokens;
@@ -236,8 +239,15 @@ export async function extractClaudeTranscriptMeta(filePath) {
   // see; can't break early because we want the freshest one.
   let lastUsage = null;
   let lastModel = "";
+  // How the session was launched: "cli" = an interactive terminal, "sdk-*" =
+  // headless (`claude -p`, the Agent SDK — e.g. a bot calling Claude). Every
+  // record carries it; the first one is enough.
+  let entrypoint = "";
   for (const line of raw.split("\n")) {
     if (!line || line[0] !== "{") continue;
+    if (!entrypoint && line.includes('"entrypoint"')) {
+      try { const o = JSON.parse(line); if (typeof o.entrypoint === "string") entrypoint = o.entrypoint; } catch {}
+    }
     if (line.includes('"custom-title"')) {
       try { const o = JSON.parse(line); if (o.customTitle) custom = o.customTitle; } catch {}
     }
@@ -272,7 +282,7 @@ export async function extractClaudeTranscriptMeta(filePath) {
     }
   }
   if (!hasMessage) return null;   // empty stub — not a real chat
-  const out = { name: custom, first_prompt: firstPrompt.slice(0, 200), cwd };
+  const out = { name: custom, first_prompt: firstPrompt.slice(0, 200), cwd, source: entrypoint };
   if (lastUsage) {
     out.context_tokens =
         (Number(lastUsage.input_tokens) || 0)

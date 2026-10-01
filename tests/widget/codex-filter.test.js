@@ -5,17 +5,25 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { isToolSpawnedCodex, filterHistoryChats } from "../../web/widget-pure.js";
+import { isServiceSession, filterHistoryChats } from "../../web/widget-pure.js";
 
-test("isToolSpawnedCodex flags only non-cli codex sessions", () => {
-  assert.equal(isToolSpawnedCodex({ agent: "codex", source: "exec" }), true, "rescue exec");
-  assert.equal(isToolSpawnedCodex({ agent: "codex", source: "vscode" }), true, "companion");
-  assert.equal(isToolSpawnedCodex({ agent: "codex", source: "subagent" }), true, "sub-agent thread");
-  assert.equal(isToolSpawnedCodex({ agent: "codex", source: "cli" }), false, "interactive codex");
-  assert.equal(isToolSpawnedCodex({ agent: "codex", source: "" }), false, "old rollout, no source");
-  assert.equal(isToolSpawnedCodex({ agent: "codex" }), false, "source absent");
-  assert.equal(isToolSpawnedCodex({ agent: "claude", source: "exec" }), false, "claude is never a codex task");
-  assert.equal(isToolSpawnedCodex(null), false, "null-safe");
+test("isServiceSession flags only non-cli codex sessions", () => {
+  assert.equal(isServiceSession({ agent: "codex", source: "exec" }), true, "rescue exec");
+  assert.equal(isServiceSession({ agent: "codex", source: "vscode" }), true, "companion");
+  assert.equal(isServiceSession({ agent: "codex", source: "subagent" }), true, "sub-agent thread");
+  assert.equal(isServiceSession({ agent: "codex", source: "cli" }), false, "interactive codex");
+  assert.equal(isServiceSession({ agent: "codex", source: "" }), false, "old rollout, no source");
+  assert.equal(isServiceSession({ agent: "codex" }), false, "source absent");
+  assert.equal(isServiceSession({ agent: "claude", source: "exec" }), false, "codex source values mean nothing for claude");
+  assert.equal(isServiceSession(null), false, "null-safe");
+});
+
+test("isServiceSession flags headless claude runs, keeps interactive front-ends", () => {
+  assert.equal(isServiceSession({ agent: "claude", source: "sdk-cli" }), true, "claude -p");
+  assert.equal(isServiceSession({ agent: "claude", source: "sdk-py" }), true, "Agent SDK (python)");
+  assert.equal(isServiceSession({ agent: "claude", source: "cli" }), false, "interactive terminal");
+  assert.equal(isServiceSession({ agent: "claude", source: "claude-vscode" }), false, "IDE is interactive");
+  assert.equal(isServiceSession({ agent: "claude", source: "" }), false, "old transcript, no entrypoint");
 });
 
 test("filterHistoryChats drops tool-spawned codex and counts them when hidden", () => {

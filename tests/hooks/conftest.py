@@ -43,6 +43,9 @@ def run_hook(monkeypatch, isolated_home, state_dir):
     Returns the parsed state-file dict (or None if the hook wrote nothing).
     """
     import emit_state
+    # Tests usually run inside an interactive Claude session, which exports
+    # CLAUDE_CODE_ENTRYPOINT=cli; drop it so results don't depend on the shell.
+    monkeypatch.delenv("CLAUDE_CODE_ENTRYPOINT", raising=False)
 
     def _invoke(payload: dict, agent: str = "claude") -> dict | None:
         monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))

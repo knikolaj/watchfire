@@ -145,3 +145,24 @@ def test_terminal_title():
     assert emit_state.terminal_title("Health", "", "idle") == "Health"
     # Empty base -> empty title (nothing to write), regardless of status.
     assert emit_state.terminal_title("", "claude-opus-4-8", "working") == ""
+
+
+def test_headless_claude_run_writes_nothing(run_hook, state_dir, monkeypatch):
+    # A bot calling `claude -p` / the Agent SDK: one throwaway session per call.
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")
+    out = run_hook({"session_id": "s1", "hook_event_name": "SessionStart", "cwd": "/home/u/bot"})
+    assert out is None
+    assert not state_dir.exists() or list(state_dir.glob("*.json")) == []
+
+
+def test_interactive_claude_still_writes_state(run_hook, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
+    s = run_hook({"session_id": "s1", "hook_event_name": "SessionStart", "cwd": "/home/u/proj"})
+    assert s is not None and s["session_id"] == "s1"
+
+
+def test_headless_entrypoint_does_not_filter_codex(run_hook, monkeypatch):
+    # The variable is Claude's; a codex hook happening to inherit it is unaffected.
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")
+    s = run_hook({"session_id": "s1", "hook_event_name": "SessionStart", "cwd": "/home/u/proj"}, agent="codex")
+    assert s is not None
