@@ -70,9 +70,12 @@ function _defaultReadFdTargets(pid) {
   } catch { return []; }
 }
 
-// A brand-new session on a host may not have its rollout open yet (the file can
-// appear only with the first turn), so don't call it gone straight away.
-const HOST_SESSION_GRACE_SEC = 10 * 60;
+// Codex creates a session's rollout only with its first turn (observed: session
+// start 02:13:01, rollout born 02:13:22 with task_started), so a fresh tab has
+// nothing open yet. Give it a minute: an untouched new tab drops off the widget
+// after that and comes back with its first message — a fair trade for closed
+// tabs disappearing promptly.
+const HOST_SESSION_GRACE_SEC = 60;
 
 /** Delete state files whose `last_event_at` is older than the kernel
  *  boot time. Returns the number of files removed. */
