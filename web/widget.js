@@ -290,7 +290,7 @@ function renderHistory() {
 function updateCodexToggle(hidden, showCodex) {
   if (!codexToggleEl) return;
   codexToggleEl.classList.toggle("active", showCodex);
-  codexToggleEl.textContent = showCodex ? "⚙ codex" : (hidden ? `⚙ codex (${hidden})` : "⚙ codex");
+  codexToggleEl.textContent = showCodex ? "⚙ service" : (hidden ? `⚙ service (${hidden})` : "⚙ service");
   codexToggleEl.hidden = !showCodex && hidden === 0;
 }
 

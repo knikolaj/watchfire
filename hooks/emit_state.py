@@ -460,6 +460,13 @@ def main() -> int:
     #   ~/.claude-meeting-summaries/ — fireflies-sync.py
     if ".claude-daily-summary" in cwd or ".claude-meeting-summaries" in cwd:
         return 0
+    # Skip headless Claude runs in general (`claude -p`, the Agent SDK): a bot
+    # that drives Claude programmatically gets a fresh session per call, which
+    # would flood the widget. Claude Code puts its launch mode in the hook's
+    # environment — "cli" for an interactive terminal, "sdk-*" when headless.
+    # Other interactive front-ends (IDE, desktop) use other values and stay.
+    if args.agent == "claude" and os.environ.get("CLAUDE_CODE_ENTRYPOINT", "").startswith("sdk"):
+        return 0
     # Normalize: codex lowercases /mnt/c/Users -> /mnt/c/users; rejoin under one district.
     # Lowercase only the WSL drive prefix, not the whole path (case-sensitive elsewhere).
     if cwd.startswith("/mnt/"):

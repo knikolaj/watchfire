@@ -218,8 +218,16 @@ function agentBadge(agent) {
  *  transcript's `source`: interactive codex is always "cli"; tool-spawned is
  *  "exec"/"vscode". Unknown/empty source (old rollouts, every Claude chat) is
  *  NOT tool-spawned, so those stay visible. */
-export function isToolSpawnedCodex(c) {
-  return !!c && c.agent === "codex" && !!c.source && c.source !== "cli";
+export function isServiceSession(c) {
+  if (!c || !c.source) return false;
+  // Codex: interactive is "cli"; "exec" / "vscode" / "subagent" are spawned
+  // by tooling (rescue tasks, the Claude Code companion, sub-agent threads).
+  if (c.agent === "codex") return c.source !== "cli";
+  // Claude: interactive is "cli"; "sdk-*" is headless (`claude -p`, Agent SDK)
+  // — e.g. a bot that opens a fresh session per call. Other front-ends (IDE,
+  // desktop) are interactive and stay visible.
+  if (c.agent === "claude") return c.source.startsWith("sdk");
+  return false;
 }
 
 /** History hides tool-spawned codex sessions by default — short-lived,
@@ -231,7 +239,7 @@ export function filterHistoryChats(chats, showCodexTasks) {
   const kept = [];
   let hidden = 0;
   for (const c of chats) {
-    if (isToolSpawnedCodex(c)) hidden++;
+    if (isServiceSession(c)) hidden++;
     else kept.push(c);
   }
   return { chats: kept, hidden };

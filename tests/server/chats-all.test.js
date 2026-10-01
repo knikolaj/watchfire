@@ -185,3 +185,15 @@ test("listAllChats carries codex session_meta.source (cli vs tool-spawned)", asy
   assert.equal(bySrc["019dcccc"], "subagent", "object source normalized to its key");
 });
 
+
+test("listAllChats carries the claude entrypoint as source (headless vs interactive)", async () => {
+  const claudeDir = await tmpDir("ca-entry");
+  await writeJsonl(path.join(claudeDir, "-home-u-bot", "bot.jsonl"),
+    [{ type: "user", entrypoint: "sdk-cli", cwd: "/home/u/bot", message: { content: "summarize" } }]);
+  await writeJsonl(path.join(claudeDir, "-home-u-proj", "me.jsonl"),
+    [{ type: "user", entrypoint: "cli", cwd: "/home/u/proj", message: { content: "hi" } }]);
+  const out = await listAllChats({ claudeDir, codexDir: await emptyCodexDir(), codexCache: freshCache() });
+  const by = Object.fromEntries(out.map(r => [r.session_id, r.source]));
+  assert.equal(by.bot, "sdk-cli");
+  assert.equal(by.me, "cli");
+});
