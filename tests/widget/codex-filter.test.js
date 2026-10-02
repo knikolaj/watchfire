@@ -18,6 +18,15 @@ test("isServiceSession flags only non-cli codex sessions", () => {
   assert.equal(isServiceSession(null), false, "null-safe");
 });
 
+test("codex: originator decides, so daemon-hosted TUI tabs (source vscode) stay visible", () => {
+  const tui = { agent: "codex", source: "vscode", originator: "codex-tui" };
+  assert.equal(isServiceSession(tui), false, "user's own tab under the app-server daemon");
+  assert.equal(isServiceSession({ agent: "codex", source: "cli", originator: "codex_cli_rs" }), false, "older TUI");
+  assert.equal(isServiceSession({ agent: "codex", source: "vscode", originator: "Claude Code" }), true, "companion");
+  assert.equal(isServiceSession({ agent: "codex", source: "exec", originator: "codex_exec" }), true, "rescue task");
+  assert.equal(isServiceSession({ agent: "codex", source: "subagent", originator: "codex-tui" }), true, "sub-agent of a TUI session");
+});
+
 test("isServiceSession flags headless claude runs, keeps interactive front-ends", () => {
   assert.equal(isServiceSession({ agent: "claude", source: "sdk-cli" }), true, "claude -p");
   assert.equal(isServiceSession({ agent: "claude", source: "sdk-py" }), true, "Agent SDK (python)");

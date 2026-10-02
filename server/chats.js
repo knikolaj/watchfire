@@ -344,8 +344,8 @@ export async function extractCodexTranscriptMeta(filePath) {
   // prompt and easily exceeds 64KB, so a fixed-byte slice would chop it
   // mid-string and break JSON.parse.
   let cwd = "";
-  let source = "";                 // session_meta.source: "cli" (interactive) vs
-                                   // "exec"/"vscode" (tool-spawned rescue/companion)
+  let source = "";                 // session_meta.source — transport, see below
+  let originator = "";             // session_meta.originator — who started it
   let firstPrompt = "";
   let threadName = "";              // last thread_name_updated wins (Codex /rename)
   let lastTokenInfo = null;        // last event_msg.token_count.info we see
@@ -369,6 +369,7 @@ export async function extractCodexTranscriptMeta(filePath) {
             if (s != null) {
               source = typeof s === "string" ? s.trim() : (Object.keys(s)[0] || "object");
             }
+            if (typeof o.payload.originator === "string") originator = o.payload.originator.trim();
           }
         } catch {}
       }
@@ -417,11 +418,12 @@ export async function extractCodexTranscriptMeta(filePath) {
     name: indexName || threadName,
     first_prompt: firstPrompt.slice(0, 200),
     last_modified: stat.mtimeMs,
-    // How the session was launched. "cli" = the user's own interactive codex;
-    // "exec"/"vscode" = tool-spawned (rescue task / Claude Code companion),
-    // which the widget hides from History by default. Empty for old rollouts
-    // with no source field — treated as not-tool-spawned (stays visible).
+    // Who started the session and how — the widget's service filter uses
+    // both (see isServiceSession). `originator` is the reliable one: Codex run
+    // through the app-server daemon reports source "vscode" even for the
+    // user's own TUI tabs. Both empty for old rollouts (stay visible).
     source,
+    originator,
   };
   if (lastTokenInfo) {
     const used = lastTokenInfo.last_token_usage?.input_tokens;
