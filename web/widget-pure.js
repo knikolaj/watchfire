@@ -218,11 +218,21 @@ function agentBadge(agent) {
  *  transcript's `source`: interactive codex is always "cli"; tool-spawned is
  *  "exec"/"vscode". Unknown/empty source (old rollouts, every Claude chat) is
  *  NOT tool-spawned, so those stay visible. */
+const CODEX_INTERACTIVE_ORIGINATORS = new Set(["codex-tui", "codex_cli_rs"]);
+
 export function isServiceSession(c) {
   if (!c || !c.source) return false;
-  // Codex: interactive is "cli"; "exec" / "vscode" / "subagent" are spawned
-  // by tooling (rescue tasks, the Claude Code companion, sub-agent threads).
-  if (c.agent === "codex") return c.source !== "cli";
+  if (c.agent === "codex") {
+    // A sub-agent thread is internal to some other session, whoever started it.
+    if (c.source === "subagent") return true;
+    // Otherwise judge by who started it, not by `source`: under the app-server
+    // daemon the user's own TUI tabs report source "vscode" — the value that
+    // used to mean "Claude Code companion". The TUI originators are the user;
+    // "Claude Code" (companion) and "codex_exec" (rescue tasks) are tooling.
+    if (c.originator) return !CODEX_INTERACTIVE_ORIGINATORS.has(c.originator);
+    // Old rollouts without originator: fall back to the transport.
+    return c.source !== "cli";
+  }
   // Claude: interactive is "cli"; "sdk-*" is headless (`claude -p`, Agent SDK)
   // — e.g. a bot that opens a fresh session per call. Other front-ends (IDE,
   // desktop) are interactive and stay visible.

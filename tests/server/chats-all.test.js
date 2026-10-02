@@ -197,3 +197,13 @@ test("listAllChats carries the claude entrypoint as source (headless vs interact
   assert.equal(by.bot, "sdk-cli");
   assert.equal(by.me, "cli");
 });
+
+test("listAllChats carries codex session_meta.originator", async () => {
+  const codexDir = await tmpDir("ca-orig-codex");
+  await writeJsonl(path.join(codexDir, "2026", "03", "03", "rollout-019deeee-eeee-7eee-eeee-eeeeeeeeeeee.jsonl"),
+    [{ type: "session_meta", payload: { cwd: "/proj/D", source: "vscode", originator: "codex-tui" } },
+     { type: "event_msg", payload: { type: "user_message", message: "mine" } }]);
+  const out = await listAllChats({ claudeDir: await tmpDir("ca-orig-claude"), codexDir, codexCache: freshCache() });
+  assert.equal(out[0].source, "vscode");
+  assert.equal(out[0].originator, "codex-tui");
+});
