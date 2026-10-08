@@ -275,8 +275,13 @@ export async function extractClaudeTranscriptMeta(filePath) {
         const msg = o.message || {};
         if (o.type === "assistant" && msg.usage) {
           hasMessage = true;
-          lastUsage = msg.usage;
-          if (msg.model) lastModel = msg.model;
+          // Claude Code's own notices ("You've hit your session limit", API
+          // errors) are assistant messages from the pseudo-model "<synthetic>"
+          // with all-zero usage — not a model turn, so not the context reading.
+          if (msg.model !== "<synthetic>") {
+            lastUsage = msg.usage;
+            if (msg.model) lastModel = msg.model;
+          }
         }
       } catch {}
     }
