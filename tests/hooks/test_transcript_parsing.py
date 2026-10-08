@@ -53,6 +53,36 @@ def test_extract_claude_usage_uses_last_assistant_turn(tmp_path):
     assert limit == 1_000_000          # claude-opus-4-7 → 1M
 
 
+CLAUDE_LIMIT_NOTICE_LAST = CLAUDE_TWO_PROMPTS + _claude_transcript(
+    # What Claude Code appends when the session limit hits: a notice written as
+    # an assistant message from a pseudo-model, with an all-zero usage block.
+    json.dumps({"type": "assistant", "message": {
+        "model": "<synthetic>",
+        "content": [{"type": "text", "text": "You've hit your session limit"}],
+        "usage": {"input_tokens": 0, "cache_creation_input_tokens": 0,
+                  "cache_read_input_tokens": 0, "output_tokens": 0},
+    }}),
+)
+
+
+def test_extract_claude_usage_ignores_synthetic_notice(tmp_path):
+    """A trailing <synthetic> notice is not a model turn: context stays at the
+    last real reply instead of dropping to 0%."""
+    import emit_state
+    fp = tmp_path / "t.jsonl"
+    fp.write_text(CLAUDE_LIMIT_NOTICE_LAST)
+    used, limit = emit_state.extract_claude_usage(str(fp))
+    assert used == 200 + 100 + 5000
+    assert limit == 1_000_000
+
+
+def test_extract_claude_model_ignores_synthetic_notice(tmp_path):
+    import emit_state
+    fp = tmp_path / "t.jsonl"
+    fp.write_text(CLAUDE_LIMIT_NOTICE_LAST)
+    assert emit_state.extract_claude_model(str(fp)) == "claude-opus-4-7"
+
+
 CLAUDE_MODEL_SWITCH = _claude_transcript(
     json.dumps({"type": "assistant", "message": {
         "model": "claude-sonnet-4-6", "usage": {"input_tokens": 1}}}),

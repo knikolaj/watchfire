@@ -41,6 +41,13 @@ EVENT_TO_STATUS = {
 # transcript hasn't materially changed since the last UserPromptSubmit/Stop.
 LIGHT_EVENTS = {"PreToolUse", "PostToolUse"}
 
+# Claude Code writes its own notices into the transcript as assistant messages
+# from this pseudo-model ("You've hit your session limit", API errors), with an
+# all-zero `usage` block. They are not model turns: reading one as "the last
+# assistant message" reported 0% context and a bogus model until the next real
+# reply.
+SYNTHETIC_MODEL = "<synthetic>"
+
 # Approximate context-window sizes by model id (used when transcript doesn't
 # carry the limit itself, e.g. Claude). Codex transcripts include
 # `model_context_window` directly so this fallback isn't consulted there.
@@ -179,7 +186,7 @@ def extract_claude_model(transcript_path: str) -> str | None:
             continue
         msg = obj.get("message") or {}
         model = msg.get("model") if isinstance(msg, dict) else None
-        if model:
+        if model and model != SYNTHETIC_MODEL:
             return model
     return None
 
@@ -231,7 +238,7 @@ def extract_claude_usage(transcript_path: str) -> tuple[int, int] | None:
             continue
         msg = obj.get("message") or {}
         usage = msg.get("usage") if isinstance(msg, dict) else None
-        if not usage:
+        if not usage or msg.get("model") == SYNTHETIC_MODEL:
             continue
         last_usage = usage
         last_model = msg.get("model") or last_model

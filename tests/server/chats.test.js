@@ -308,3 +308,20 @@ test("extractCodexTranscriptMeta returns context_tokens + context_limit from las
   assert.equal(meta.context_tokens, 9999);
   assert.equal(meta.context_limit, 258400);
 });
+
+test("extractClaudeTranscriptMeta ignores a trailing <synthetic> notice when reading context", async () => {
+  // Claude Code's "You've hit your session limit" is an assistant message from
+  // a pseudo-model with all-zero usage; it must not read as 0% context.
+  const dir = await tmpDir("claude-synthetic");
+  const fp = path.join(dir, "t.jsonl");
+  await writeJsonl(fp, [
+    { type: "user", message: { content: "hi" } },
+    { type: "assistant", message: { model: "claude-opus-4-7",
+      usage: { input_tokens: 200, cache_creation_input_tokens: 50, cache_read_input_tokens: 5000 } } },
+    { type: "assistant", message: { model: "<synthetic>",
+      usage: { input_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } },
+  ]);
+  const meta = await extractClaudeTranscriptMeta(fp);
+  assert.equal(meta.context_tokens, 200 + 50 + 5000);
+  assert.equal(meta.context_limit, 1_000_000);
+});
