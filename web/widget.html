@@ -77,6 +77,17 @@
       background: transparent;
       border: 0;
     }
+    /* Self-check mark: live sessions the widget is not showing (server/audit.js). */
+    .audit-warn {
+      height: 18px;
+      padding: 0 4px;
+      display: flex;
+      align-items: center;
+      font-size: 11px;
+      color: #e0a030;
+      cursor: help;
+    }
+    .audit-warn[hidden] { display: none; }
     .mode-btn:hover { background: var(--bg-row-hover); color: var(--text); }
     .mode-btn.active { background: var(--bg-row); color: var(--text); }
 
@@ -417,6 +428,7 @@
     <div class="history-body" id="historyBody"></div>
   </div>
   <div class="modebar" id="modebar">
+    <span class="audit-warn" id="auditWarn" hidden></span>
     <button class="mode-btn" data-mode="full"    title="Statuses (full list)">▤</button>
     <button class="mode-btn" data-mode="mini"    title="Statuses (mini bar)">─</button>
     <button class="mode-btn" data-mode="history" title="History (all chats)">⏱</button>
