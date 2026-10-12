@@ -2,9 +2,9 @@
 //
 // Two strategies, each with a different signal of "this session can't
 // possibly still be alive":
-//   • prePruneBoot — last_event_at predates the kernel boot time, so
-//     the writing process certainly died at shutdown. Runs once at
-//     server startup. Linux-only via /proc/stat.
+//   • prePruneBoot — the state file was written during an earlier boot,
+//     so the writing process certainly died at shutdown. Runs once at
+//     server startup. Linux-only via /proc.
 //   • pruneOrphanedSessions — recorded pid is gone (or has been
 //     recycled into something that isn't a claude/codex CLI). Runs
 //     every 5 minutes from the server, plus once at startup.
@@ -24,6 +24,13 @@ export function getSystemBootTimeSec(procStatPath = "/proc/stat") {
     if (m) return Number(m[1]);
   } catch { /* not Linux, or /proc/stat unreadable */ }
   return 0;
+}
+
+/** Identity of the current boot: a random id the kernel generates at start-up.
+ *  Unlike btime it does not move while the machine sleeps. */
+export function getBootId(bootIdPath = "/proc/sys/kernel/random/boot_id") {
+  try { return fssync.readFileSync(bootIdPath, "utf-8").trim(); }
+  catch { return ""; }
 }
 
 /** Liveness check for a recorded session PID. Returns:
@@ -77,11 +84,20 @@ function _defaultReadFdTargets(pid) {
 // tabs disappearing promptly.
 const HOST_SESSION_GRACE_SEC = 60;
 
-/** Delete state files whose `last_event_at` is older than the kernel
- *  boot time. Returns the number of files removed. */
+/** Delete state files left over from an earlier boot. Returns the number of
+ *  files removed.
+ *
+ *  The hook stamps each state file with the kernel's boot id; a different id
+ *  means a different boot. Comparing `last_event_at` with btime — the old
+ *  rule, still used for files without a stamp — is not safe on its own: under
+ *  WSL btime is derived from a clock that stops while the host sleeps, so it
+ *  creeps forward by every nap, and a server restart then deleted live
+ *  sessions that had merely been quiet since before the "boot". */
 export async function prePruneBoot(stateDir, opts = {}) {
   const bootTime = opts.bootTime ?? getSystemBootTimeSec();
-  if (!bootTime) return 0;
+  const bootId = opts.bootId ?? getBootId();
+  const onRemove = opts.onRemove ?? (() => {});
+  if (!bootTime && !bootId) return 0;
   fssync.mkdirSync(stateDir, { recursive: true });
   let removed = 0;
   const files = (await fs.readdir(stateDir)).filter(f => f.endsWith(".json"));
@@ -89,9 +105,13 @@ export async function prePruneBoot(stateDir, opts = {}) {
     const fp = path.join(stateDir, f);
     try {
       const s = JSON.parse(await fs.readFile(fp, "utf-8"));
-      if ((s.last_event_at || 0) < bootTime) {
+      const stale = s.boot_id && bootId
+        ? s.boot_id !== bootId
+        : !!bootTime && (s.last_event_at || 0) < bootTime;
+      if (stale) {
         await fs.unlink(fp);
         removed++;
+        onRemove(s, "written before this boot");
       }
     } catch { /* unreadable / malformed — leave it */ }
   }
@@ -106,6 +126,7 @@ export async function pruneOrphanedSessions(stateDir, opts = {}) {
   const isHost = opts.isHost ?? isSessionHost;
   const holdsOpen = opts.holdsOpen ?? holdsFileOpen;
   const now = opts.now ?? Date.now() / 1000;
+  const onRemove = opts.onRemove ?? (() => {});
   let removed = 0;
   const files = (await fs.readdir(stateDir).catch(() => []))
     .filter(f => f.endsWith(".json"));
@@ -123,6 +144,9 @@ export async function pruneOrphanedSessions(stateDir, opts = {}) {
       if (alive === false || closedOnHost) {
         await fs.unlink(fp);
         removed++;
+        onRemove(s, alive === false
+          ? `process ${s.pid} is gone`
+          : `host ${s.pid} no longer holds its transcript open`);
       }
     } catch { /* ignore */ }
   }
@@ -145,6 +169,7 @@ export async function pruneOrphanedSessions(stateDir, opts = {}) {
  *  the freshest. Their lifetime is handled by pruneOrphanedSessions instead. */
 export async function pruneSupersededSessions(stateDir, opts = {}) {
   const isHost = opts.isHost ?? isSessionHost;
+  const onRemove = opts.onRemove ?? (() => {});
   const files = (await fs.readdir(stateDir).catch(() => []))
     .filter(f => f.endsWith(".json"));
   // Group readable state files by pid.
@@ -154,7 +179,7 @@ export async function pruneSupersededSessions(stateDir, opts = {}) {
     try {
       const s = JSON.parse(await fs.readFile(fp, "utf-8"));
       if (!s.pid) continue;
-      (byPid.get(s.pid) ?? byPid.set(s.pid, []).get(s.pid)).push({ fp, at: s.last_event_at || 0 });
+      (byPid.get(s.pid) ?? byPid.set(s.pid, []).get(s.pid)).push({ fp, s, at: s.last_event_at || 0 });
     } catch { /* unreadable — leave it */ }
   }
   let removed = 0;
@@ -164,8 +189,12 @@ export async function pruneSupersededSessions(stateDir, opts = {}) {
     if (isHost(pid)) continue;
     // Keep the freshest by last_event_at; delete the older siblings.
     group.sort((a, b) => b.at - a.at);
-    for (const { fp } of group.slice(1)) {
-      try { await fs.unlink(fp); removed++; } catch { /* ignore */ }
+    for (const { fp, s } of group.slice(1)) {
+      try {
+        await fs.unlink(fp);
+        removed++;
+        onRemove(s, `superseded by a newer session on process ${pid}`);
+      } catch { /* ignore */ }
     }
   }
   return removed;

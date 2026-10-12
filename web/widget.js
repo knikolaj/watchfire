@@ -390,7 +390,19 @@ function invalidateChats(cwd) {
   chatsCache.delete(cwd);
 }
 
+// Hourly self-check result from the server: sessions that are running but
+// missing here. Shown as a small mark so a silent gap doesn't stay silent.
+function renderAudit(unseen) {
+  const el = document.getElementById("auditWarn");
+  if (!el) return;
+  el.hidden = unseen.length === 0;
+  el.textContent = `⚠ ${unseen.length}`;
+  el.title = "Running but not shown here:\n"
+    + unseen.map(u => `${u.agent} · ${shortPath(u.cwd || "")} · ${String(u.session_id).slice(0, 8)}`).join("\n");
+}
+
 connectWS({
+  onAudit: renderAudit,
   onSnapshot: (list) => {
     sessions.clear();
     chatsCounts.clear();

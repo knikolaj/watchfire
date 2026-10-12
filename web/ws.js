@@ -14,7 +14,7 @@
 // live — so it heals on its own the moment you glance at it, without ever
 // stacking duplicate sockets.
 
-export function connectWS({ onSnapshot, onUpsert, onRemove }) {
+export function connectWS({ onSnapshot, onUpsert, onRemove, onAudit }) {
   let ws = null;
   let reconnectTimer = null;
 
@@ -30,6 +30,7 @@ export function connectWS({ onSnapshot, onUpsert, onRemove }) {
       const msg = JSON.parse(e.data);
       if (msg.type === "snapshot")             onSnapshot(msg.sessions);
       else if (msg.type === "session_removed") onRemove(msg.session_id);
+      else if (msg.type === "audit")           onAudit?.(msg.unseen || []);
       else if (msg.session)                    onUpsert(msg.session);
     };
     ws.onclose = () => { reconnectTimer = setTimeout(open, 1000); };

@@ -17,6 +17,7 @@ import { WebSocketServer } from "ws";
 
 import { listChatsForCwd, listAllChats } from "./chats.js";
 import { prePruneBoot, pruneOrphanedSessions, pruneSupersededSessions } from "./prune.js";
+import { findUnseenSessions } from "./audit.js";
 import { remapCwd } from "./config.js";
 import { HOST, isAllowedRequest, isValidSessionId } from "./guard.js";
 
@@ -24,6 +25,18 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WEB_DIR = path.resolve(__dirname, "..", "web");
 const STATE_DIR = path.join(os.homedir(), ".watchfire", "sessions");
 const PORT = Number(process.env.PORT) || 4173;
+
+// Every line of server.log carries local wall-clock time — without it "why did
+// that session vanish yesterday evening" cannot be answered from the log.
+function stamp() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+for (const level of ["log", "error"]) {
+  const orig = console[level].bind(console);
+  console[level] = (...args) => orig(`[${stamp()}]`, ...args);
+}
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -206,6 +219,7 @@ wss.on("connection", async (ws) => {
   // Send full snapshot on connect
   const snapshot = await readAllSessions();
   ws.send(JSON.stringify({ type: "snapshot", sessions: snapshot }));
+  ws.send(JSON.stringify({ type: "audit", unseen: lastUnseen }));
 });
 
 function broadcast(msg) {
@@ -343,20 +357,39 @@ watcher
 
 // --- Start -----------------------------------------------------------------
 
-const removedBoot = await prePruneBoot(STATE_DIR);
-if (removedBoot) console.log(`pruned ${removedBoot} pre-boot session(s)`);
-const removedOrphans = await pruneOrphanedSessions(STATE_DIR);
-if (removedOrphans) console.log(`pruned ${removedOrphans} orphan session(s)`);
-const removedSuperseded = await pruneSupersededSessions(STATE_DIR);
-if (removedSuperseded) console.log(`pruned ${removedSuperseded} superseded session(s)`);
+// Say which session each prune removed and why, not just how many.
+const logPrune = (kind) => (s, reason) =>
+  console.log(`[prune:${kind}] ${s.agent || "?"} ${s.session_id} (${s.cwd || "?"}): ${reason}`);
+
+await prePruneBoot(STATE_DIR, { onRemove: logPrune("boot") });
+async function sweep() {
+  await pruneOrphanedSessions(STATE_DIR, { onRemove: logPrune("orphan") }).catch(() => 0);
+  await pruneSupersededSessions(STATE_DIR, { onRemove: logPrune("superseded") }).catch(() => 0);
+}
+await sweep();
 // Re-check every 5 minutes so closed-but-not-rebooted sessions disappear
 // without needing a server restart.
-setInterval(async () => {
-  const r = await pruneOrphanedSessions(STATE_DIR).catch(() => 0);
-  if (r) console.log(`pruned ${r} orphan session(s)`);
-  const s = await pruneSupersededSessions(STATE_DIR).catch(() => 0);
-  if (s) console.log(`pruned ${s} superseded session(s)`);
-}, 5 * 60 * 1000);
+setInterval(sweep, 5 * 60 * 1000);
+
+// Self-check, hourly: a live interactive session that is not on the widget is
+// a bug somewhere between the agent's hook and here. Log it and let the widget
+// show a warning mark (see server/audit.js).
+let lastUnseen = [];
+async function audit() {
+  try {
+    const { live, unseen } = await findUnseenSessions(STATE_DIR);
+    for (const u of unseen) {
+      console.log(`[audit] not shown: ${u.agent} ${u.session_id} (${u.cwd || "?"})${u.pid ? ` pid ${u.pid}` : ""}`);
+    }
+    if (!unseen.length) console.log(`[audit] ok: ${live} live session(s), all shown`);
+    lastUnseen = unseen;
+    broadcast({ type: "audit", unseen });
+  } catch (err) {
+    console.error("[audit] failed:", err.message);
+  }
+}
+setTimeout(audit, 3 * 60 * 1000);   // after start-up, once the tabs are back
+setInterval(audit, 60 * 60 * 1000);
 
 // Loopback only: WSL still forwards it to Windows' localhost (NAT relay, or
 // natively under mirrored networking), but nothing on the LAN can reach it.

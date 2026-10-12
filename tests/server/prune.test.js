@@ -67,6 +67,35 @@ test("prePruneBoot skips malformed json files", async () => {
   assert.deepEqual(await listSessionIds(dir), ["bad"]);     // malformed left alone
 });
 
+test("prePruneBoot trusts the boot id over a drifted boot time", async () => {
+  // WSL after a sleep: btime has crept past sessions that are still running.
+  const dir = await tmpDir("prune-boot-id");
+  const boot = 1_000_000;
+  await writeState(dir, "live-quiet", { last_event_at: boot - 100, boot_id: "this-boot" });
+  await writeState(dir, "leftover",   { last_event_at: boot + 50,  boot_id: "earlier-boot" });
+  await writeState(dir, "legacy-old", { last_event_at: boot - 100 });
+
+  const reasons = [];
+  const removed = await prePruneBoot(dir, {
+    bootTime: boot, bootId: "this-boot",
+    onRemove: (s, why) => reasons.push(why),
+  });
+  assert.equal(removed, 2);
+  assert.deepEqual(await listSessionIds(dir), ["live-quiet"]);
+  assert.equal(reasons.length, 2, "each removal is reported with a reason");
+});
+
+test("prune functions report what they removed and why", async () => {
+  const dir = await tmpDir("prune-reasons");
+  await writeState(dir, "dead", { session_id: "dead", pid: 111, last_event_at: 1 });
+  const seen = [];
+  await pruneOrphanedSessions(dir, {
+    isAlive: () => false, isHost: () => false,
+    onRemove: (s, why) => seen.push([s.session_id, why]),
+  });
+  assert.deepEqual(seen, [["dead", "process 111 is gone"]]);
+});
+
 // --- isClaudeProcessAlive --------------------------------------------------
 
 test("isClaudeProcessAlive — alive claude/codex/node returns true", () => {

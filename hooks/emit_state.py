@@ -69,6 +69,17 @@ MODEL_LIMITS = {
 }
 
 
+def boot_id() -> str | None:
+    """The kernel's id for the current boot. Stamped into the state file so the
+    server can tell a leftover from an earlier boot without comparing times
+    (boot time drifts under WSL whenever the host sleeps)."""
+    try:
+        with open("/proc/sys/kernel/random/boot_id") as f:
+            return f.read().strip() or None
+    except OSError:
+        return None
+
+
 def find_agent_pid() -> int:
     """Walk up the process tree from our parent until we hit the claude/codex
     CLI. The hook is spawned via `sh -c "/path/emit_state.py …"`, so
@@ -519,6 +530,9 @@ def main() -> int:
     # server uses this to garbage-collect state for sessions whose terminal
     # was closed without firing Stop.
     state["pid"] = find_agent_pid()
+    bid = boot_id()
+    if bid:
+        state["boot_id"] = bid
     if transcript_path:
         state["transcript_path"] = transcript_path
     if payload.get("model"):

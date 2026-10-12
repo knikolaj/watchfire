@@ -166,3 +166,18 @@ def test_headless_entrypoint_does_not_filter_codex(run_hook, monkeypatch):
     monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")
     s = run_hook({"session_id": "s1", "hook_event_name": "SessionStart", "cwd": "/home/u/proj"}, agent="codex")
     assert s is not None
+
+
+def test_state_carries_boot_id(run_hook, monkeypatch):
+    """The server tells leftovers of an earlier boot by this stamp."""
+    import emit_state
+    monkeypatch.setattr(emit_state, "boot_id", lambda: "boot-abc")
+    out = run_hook({"session_id": "s1", "hook_event_name": "SessionStart", "cwd": "/p"})
+    assert out["boot_id"] == "boot-abc"
+
+
+def test_missing_boot_id_is_not_fatal(run_hook, monkeypatch):
+    import emit_state
+    monkeypatch.setattr(emit_state, "boot_id", lambda: None)
+    out = run_hook({"session_id": "s1", "hook_event_name": "SessionStart", "cwd": "/p"})
+    assert out is not None and "boot_id" not in out
