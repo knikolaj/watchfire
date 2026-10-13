@@ -34,8 +34,8 @@ const historyEl  = document.getElementById("history");
 const historyBodyEl = document.getElementById("historyBody");
 const codexToggleEl = document.getElementById("codexToggle");
 
-// History view state — populated by /chats-all the first time mode=history
-// is entered. Persisted-by-app: chats list itself is a fetch, expanded set
+// History view state — populated by /chats-all when mode=history is entered
+// and refreshed while it stays open. Persisted-by-app: chats list itself is a fetch, expanded set
 // + sort lives in memory + localStorage.
 let historyChats = null;        // null = not loaded yet, array once loaded
 let historyFetching = false;
@@ -226,23 +226,31 @@ function setHistorySort(s) {
   renderHistory();
 }
 
+// The list is a snapshot of the transcripts on disk, so it goes stale: fetched
+// only once, a widget left open for days showed nothing newer than the day it
+// was opened. Paint what we have at once, then refetch — on every entry into
+// History and every couple of minutes while it stays open.
+const HISTORY_REFRESH_MS = 2 * 60 * 1000;
+
 async function loadHistory() {
-  if (historyChats !== null || historyFetching) {
-    renderHistory();   // already have data — paint with what we've got
-    return;
-  }
+  renderHistory();   // paint cached data (no-op before the first load)
+  if (historyFetching) return;
   historyFetching = true;
-  historyBodyEl.innerHTML = `<div class="empty">Loading history…</div>`;
+  if (historyChats === null) {
+    historyBodyEl.innerHTML = `<div class="empty">Loading history…</div>`;
+  }
   try {
     const r = await fetch("/chats-all");
-    historyChats = r.ok ? await r.json() : [];
+    if (r.ok) historyChats = await r.json();
+    else historyChats ??= [];
   } catch {
-    historyChats = [];
+    historyChats ??= [];   // keep the last good list if the refetch fails
   } finally {
     historyFetching = false;
     renderHistory();
   }
 }
+setInterval(() => { if (currentMode() === "history") loadHistory(); }, HISTORY_REFRESH_MS);
 
 function renderHistory() {
   if (historyChats === null) return;   // not loaded yet
