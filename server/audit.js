@@ -80,23 +80,63 @@ function _readRolloutMeta(file) {
   } catch { return null; }
 }
 
-/** Ids of every session some agent process has open right now, whether or
- *  not its hook has fired. Codex fires no hook on `resume` until the first
- *  message, so the state dir alone misses a freshly resumed session. */
-export function listOpenSessionIds(opts = {}) {
+/** HERDR_PANE_ID from a process's environment: set when it runs inside a
+ *  herdr pane. null otherwise, or if the process is gone. */
+function _herdrPaneOf(pid) {
+  try {
+    const env = fssync.readFileSync(`/proc/${pid}/environ`, "utf-8").split("\0");
+    const kv = env.find(v => v.startsWith("HERDR_PANE_ID="));
+    return kv ? kv.slice("HERDR_PANE_ID=".length) || null : null;
+  } catch { return null; }
+}
+
+const UUID_RE = /\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b/;
+
+/** Codex terminal clients (`codex`, `codex resume <id>`) — not the
+ *  app-server host, which serves every tab and lives in no pane. */
+function _listCodexClients() {
+  const out = [];
+  let pids;
+  try { pids = fssync.readdirSync("/proc").filter(n => /^\d+$/.test(n)); } catch { return []; }
+  for (const pid of pids) {
+    try {
+      if (fssync.readFileSync(`/proc/${pid}/comm`, "utf-8").trim() !== "codex") continue;
+      const cmdline = fssync.readFileSync(`/proc/${pid}/cmdline`, "utf-8").split("\0").join(" ");
+      if (!cmdline.includes("app-server")) out.push({ pid: Number(pid), cmdline });
+    } catch { /* exited */ }
+  }
+  return out;
+}
+
+/** Every session some agent process has open right now, whether or not its
+ *  hook has fired — Codex fires no hook on `resume` until the first message,
+ *  so the state dir alone misses a freshly resumed session. Each entry says
+ *  which herdr pane holds it, if any: [{ session_id, herdr_pane_id }].
+ *  A Codex session started fresh (no id on its command line) can't be tied to
+ *  its pane this way; it is listed without one. */
+export function listOpenSessions(opts = {}) {
   const listClaudeRegistry = opts.listClaudeRegistry ?? _listClaudeRegistry;
   const procStartOf = opts.procStartOf ?? _procStartOf;
   const listCodexRollouts = opts.listCodexRollouts ?? _listCodexRollouts;
-  const ids = new Set();
+  const listCodexClients = opts.listCodexClients ?? _listCodexClients;
+  const herdrPaneOf = opts.herdrPaneOf ?? _herdrPaneOf;
+  const open = new Map();   // session_id -> herdr pane id | null
   for (const e of listClaudeRegistry()) {
     if (e && e.pid && e.sessionId && e.procStart
-        && procStartOf(e.pid) === String(e.procStart)) ids.add(e.sessionId);
+        && procStartOf(e.pid) === String(e.procStart)) {
+      open.set(e.sessionId, herdrPaneOf(e.pid));
+    }
   }
   for (const file of listCodexRollouts()) {
     const m = ROLLOUT_RE.exec(file);
-    if (m) ids.add(m[1]);
+    if (m && !open.has(m[1])) open.set(m[1], null);
   }
-  return [...ids];
+  for (const c of listCodexClients()) {
+    const m = UUID_RE.exec(c.cmdline);
+    const pane = m && herdrPaneOf(c.pid);
+    if (m && pane && open.has(m[1])) open.set(m[1], pane);
+  }
+  return [...open].map(([session_id, herdr_pane_id]) => ({ session_id, herdr_pane_id }));
 }
 
 /** Live interactive sessions that have no state file. Returns

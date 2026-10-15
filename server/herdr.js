@@ -42,6 +42,19 @@ function _exec(bin, args) {
   });
 }
 
+/** Switch herdr to the pane holding an agent (its workspace and tab too). */
+export async function focusInHerdr(paneId, opts = {}) {
+  const bin = opts.bin !== undefined ? opts.bin : herdrBin();
+  const exec = opts.exec ?? _exec;
+  if (!bin) return { ok: false, err: "herdr_not_installed" };
+  try {
+    await exec(bin, ["agent", "focus", paneId]);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, err: "herdr_failed", msg: e.message };
+  }
+}
+
 /** The workspace to open `cwd` in: the one with a pane already in that
  *  directory, else the one labelled with the directory's name. null = none. */
 export function pickWorkspace(workspaces, panes, cwd) {

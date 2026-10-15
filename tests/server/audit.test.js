@@ -82,12 +82,18 @@ test("headless claude, brand-new sessions and tool-started codex are not expecte
   assert.deepEqual(r, { live: 0, unseen: [] });
 });
 
-test("listOpenSessionIds: verified claude registry entries + every rollout held open", async () => {
-  const { listOpenSessionIds } = await import("../../server/audit.js");
-  const ids = listOpenSessionIds({
-    listClaudeRegistry: () => [claude(10, "c-live"), claude(11, "c-stale")],
-    procStartOf: (pid) => (pid === 10 ? "100" : "999"),
-    listCodexRollouts: () => [rollout(U(1)), "/not/a/rollout.txt"],
+test("listOpenSessions: verified claude entries + held rollouts, with their herdr pane", async () => {
+  const { listOpenSessions } = await import("../../server/audit.js");
+  const list = listOpenSessions({
+    listClaudeRegistry: () => [claude(10, "c-herdr"), claude(11, "c-stale"), claude(12, "c-wt")],
+    procStartOf: (pid) => ({ 10: "100", 11: "999", 12: "120" })[pid],
+    listCodexRollouts: () => [rollout(U(1)), rollout(U(2)), "/not/a/rollout.txt"],
+    listCodexClients: () => [
+      { pid: 20, cmdline: `codex resume ${U(1)}` },   // resumed inside herdr
+      { pid: 21, cmdline: "codex" },                   // fresh: id unknown
+    ],
+    herdrPaneOf: (pid) => ({ 10: "w1:p1", 20: "w1:p2", 21: "w1:p3" })[pid] ?? null,
   });
-  assert.deepEqual(ids.sort(), ["c-live", U(1)].sort());
+  const byId = Object.fromEntries(list.map(s => [s.session_id, s.herdr_pane_id]));
+  assert.deepEqual(byId, { "c-herdr": "w1:p1", "c-wt": null, [U(1)]: "w1:p2", [U(2)]: null });
 });

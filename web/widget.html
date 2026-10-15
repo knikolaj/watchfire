@@ -405,6 +405,11 @@
       margin-right: -4px;
     }
     .hist-herdr.resume { cursor: pointer; color: var(--text-dim); }
+    .hist-herdr.live {
+      cursor: pointer; color: var(--status-done);
+      text-shadow: 0 0 4px var(--status-done);
+    }
+    .hist-herdr.live:hover { background: var(--bg-row-hover); }
     .hist-herdr.resume:hover { background: var(--bg-row-hover); color: var(--text); }
     /* Resume clicked, session not open yet: pulse green until it shows up. */
     .hist-herdr.opening, .hist-status.opening {

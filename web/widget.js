@@ -42,6 +42,7 @@ let historyFetching = false;
 // Sessions an agent process has open (server-side check, not just hooks) and
 // resumes clicked but not open yet (id -> give-up time, ms).
 let openIds = new Set();
+let herdrIds = new Set();   // open sessions that sit in a herdr pane
 const pendingResumes = new Map();
 const PENDING_MS = 2 * 60 * 1000;
 const historyExpanded = new Set();
@@ -260,7 +261,11 @@ setInterval(() => { if (currentMode() === "history") loadHistory(); }, HISTORY_R
 async function refreshOpenIds() {
   try {
     const r = await fetch("/open-sessions");
-    if (r.ok) openIds = new Set(await r.json());
+    if (r.ok) {
+      const list = await r.json();
+      openIds = new Set(list.map(s => s.session_id));
+      herdrIds = new Set(list.filter(s => s.herdr_pane_id).map(s => s.session_id));
+    }
   } catch { /* keep the last answer */ }
 }
 
@@ -288,13 +293,16 @@ function renderHistory() {
     if (liveIds.has(id) || Date.now() > until) pendingResumes.delete(id);
   }
   const pendingIds = new Set(pendingResumes.keys());
+  // Claude sessions also carry their pane in hook state.
+  const inHerdr = new Set([...herdrIds,
+    ...[...sessions.values()].filter(s => s.herdr_pane_id).map(s => s.session_id)]);
   // Hide tool-spawned codex sessions (rescue/companion) unless revealed.
   const showCodex = currentShowCodexTasks();
   const { chats, hidden } = filterHistoryChats(historyChats, showCodex);
   updateCodexToggle(hidden, showCodex);
   historyBodyEl.innerHTML = sort === "time"
-    ? renderHistoryByTimeHtml(chats, now, liveIds, pendingIds)
-    : renderHistoryByProjectHtml(chats, now, { expanded: historyExpanded, liveIds, pendingIds });
+    ? renderHistoryByTimeHtml(chats, now, liveIds, pendingIds, inHerdr)
+    : renderHistoryByProjectHtml(chats, now, { expanded: historyExpanded, liveIds, pendingIds, herdrIds: inHerdr });
 
   for (const h of historyBodyEl.querySelectorAll(".hist-group-header")) {
     h.addEventListener("click", () => {
@@ -327,6 +335,15 @@ function renderHistory() {
         cwd: row.dataset.resumeCwd || "",
         name: row.dataset.name || "",
       });
+    });
+  }
+  // Open in herdr: focus it (the server switches herdr to its pane).
+  for (const icon of historyBodyEl.querySelectorAll(".hist-herdr.live")) {
+    icon.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const row = icon.closest(".hist-row");
+      focusSession(sessions.get(row.dataset.id)
+        ?? { session_id: row.dataset.id, cwd: row.dataset.cwd, name: row.dataset.name });
     });
   }
   for (const icon of historyBodyEl.querySelectorAll(".hist-herdr.resume")) {
