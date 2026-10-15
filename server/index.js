@@ -18,7 +18,7 @@ import { WebSocketServer } from "ws";
 import { listChatsForCwd, listAllChats, extractCodexTranscriptMeta } from "./chats.js";
 import { prePruneBoot, pruneOrphanedSessions, pruneSupersededSessions } from "./prune.js";
 import { findUnseenSessions, listOpenSessions } from "./audit.js";
-import { resumeInHerdr, focusInHerdr, listHerdrAgents, matchPanesByTitle } from "./herdr.js";
+import { resumeInHerdr, focusInHerdr, listHerdrAgents, matchPanesByTitle, matchPanesByThreadId } from "./herdr.js";
 import { remapCwd } from "./config.js";
 import { HOST, isAllowedRequest, isValidSessionId } from "./guard.js";
 
@@ -140,11 +140,19 @@ async function rolloutMeta(file) {
  *  process check couldn't place (a fresh `codex` — see matchPanesByTitle). */
 async function openSessionsWithHerdr() {
   const open = listOpenSessions();
-  const unplaced = open.filter(s => !s.herdr_pane_id);
+  let unplaced = open.filter(s => !s.herdr_pane_id);
   if (!unplaced.length) return open;
   const claimed = new Set(open.map(s => s.herdr_pane_id).filter(Boolean));
-  const agents = (await listHerdrAgents()).filter(a => !claimed.has(a.pane_id));
+  let agents = (await listHerdrAgents()).filter(a => !claimed.has(a.pane_id));
   if (!agents.length) return open;
+  // Exact first: the session id in the pane title (Codex "thread-id" title item).
+  const exact = matchPanesByThreadId(unplaced.map(s => s.session_id), agents);
+  for (const s of open) if (exact.has(s.session_id)) s.herdr_pane_id = exact.get(s.session_id);
+  const taken = new Set(exact.values());
+  agents = agents.filter(a => !taken.has(a.pane_id));
+  unplaced = unplaced.filter(s => !exact.has(s.session_id));
+  if (!agents.length || !unplaced.length) return open;
+  // Fallback for tabs without the id in their title: name + folder.
   const meta = await Promise.all(unplaced.map(async (s) => {
     const st = await readState(s.session_id);
     if (st?.name || !s.rollout) return st;
