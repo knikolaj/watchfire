@@ -354,6 +354,10 @@ function renderHistoryChatRowHtml(c, now, showCwd, isLive) {
   const statusIcon = isLive
     ? `<span class="hist-status live" title="session open — click to focus"></span>`
     : `<span class="hist-status resume" title="session closed — click to resume">↻</span>`;
+  // Temporary, while trying herdr: a second way to resume, into a herdr tab.
+  const herdrIcon = isLive
+    ? `<span class="hist-herdr"></span>`
+    : `<span class="hist-herdr resume" title="resume in herdr">⧉</span>`;
   return `
     <div class="hist-row" data-id="${escapeAttr(c.session_id)}" data-cwd="${escapeAttr(c.cwd)}" data-agent="${escapeAttr(c.agent || "")}" data-resume-cwd="${escapeAttr(c.cwd_real || c.cwd)}" data-name="${escapeAttr(chatName(c))}">
       ${agentBadge(c.agent)}
@@ -362,6 +366,7 @@ function renderHistoryChatRowHtml(c, now, showCwd, isLive) {
         ${cwdTag}
       </div>
       ${statusIcon}
+      ${herdrIcon}
       ${ctxBlock}
       <div class="hist-ago">${ago}</div>
     </div>`;
