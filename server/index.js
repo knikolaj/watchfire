@@ -18,6 +18,7 @@ import { WebSocketServer } from "ws";
 import { listChatsForCwd, listAllChats } from "./chats.js";
 import { prePruneBoot, pruneOrphanedSessions, pruneSupersededSessions } from "./prune.js";
 import { findUnseenSessions } from "./audit.js";
+import { resumeInHerdr } from "./herdr.js";
 import { remapCwd } from "./config.js";
 import { HOST, isAllowedRequest, isValidSessionId } from "./guard.js";
 
@@ -143,7 +144,7 @@ async function handleRequest(req, res) {
     res.writeHead(200, { "content-type": "application/json" });
     return res.end(JSON.stringify(result));
   }
-  if (req.method === "POST" && req.url === "/resume") {
+  if (req.method === "POST" && (req.url === "/resume" || req.url === "/resume-herdr")) {
     let body = {};
     try { body = await readBody(req); } catch {}
     const agent = body.agent === "codex" ? "codex" : "claude";
@@ -161,7 +162,14 @@ async function handleRequest(req, res) {
       res.writeHead(400, { "content-type": "application/json" });
       return res.end(JSON.stringify({ ok: false, err: "bad session_id" }));
     }
-    const result = await resumeSession({ agent, cwd, sessionId, name });
+    let result;
+    if (req.url === "/resume-herdr") {
+      result = await resumeInHerdr({ agent, cwd, sessionId, name });
+      if (result.ok) focusWindowsTerminal("");   // bring the terminal holding herdr forward
+      else console.error(`[resume-herdr] ${sessionId}: ${result.err}${result.msg ? `: ${result.msg}` : ""}`);
+    } else {
+      result = await resumeSession({ agent, cwd, sessionId, name });
+    }
     res.writeHead(200, { "content-type": "application/json" });
     return res.end(JSON.stringify(result));
   }

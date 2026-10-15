@@ -181,3 +181,13 @@ def test_missing_boot_id_is_not_fatal(run_hook, monkeypatch):
     monkeypatch.setattr(emit_state, "boot_id", lambda: None)
     out = run_hook({"session_id": "s1", "hook_event_name": "SessionStart", "cwd": "/p"})
     assert out is not None and "boot_id" not in out
+
+
+def test_records_herdr_pane(run_hook, monkeypatch):
+    monkeypatch.setenv("HERDR_PANE_ID", "w1:p2")
+    out = run_hook({"session_id": "s1", "hook_event_name": "SessionStart", "cwd": "/p"})
+    assert out["herdr_pane_id"] == "w1:p2"
+    # Same session resumed outside herdr: the stale pane id goes away.
+    monkeypatch.delenv("HERDR_PANE_ID")
+    out = run_hook({"session_id": "s1", "hook_event_name": "UserPromptSubmit", "cwd": "/p", "prompt": "x"})
+    assert "herdr_pane_id" not in out

@@ -160,3 +160,14 @@ test("renderHistoryByTimeHtml shows project tag inline next to each row", () => 
   ], NOW);
   assert.match(html, /acme\/data-pipeline/);
 });
+
+test("closed chats get a separate resume-in-herdr icon; live ones don't", () => {
+  const html = renderHistoryByTimeHtml([
+    c({ session_id: "closed", last_modified: MS(NOW - 60) }),
+    c({ session_id: "live", last_modified: MS(NOW - 30) }),
+  ], NOW, new Set(["live"]));
+  const rows = html.split('class="hist-row"').slice(1);
+  const row = (id) => rows.find(r => r.includes(`data-id="${id}"`));
+  assert.match(row("closed"), /hist-herdr resume/);
+  assert.doesNotMatch(row("live"), /hist-herdr resume/);
+});

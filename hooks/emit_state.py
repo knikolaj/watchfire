@@ -533,6 +533,14 @@ def main() -> int:
     bid = boot_id()
     if bid:
         state["boot_id"] = bid
+    # Inside a herdr pane the agent (and so this hook) inherits HERDR_PANE_ID.
+    # Recorded so the widget can tell herdr sessions apart and, later, focus
+    # the right pane. Dropped when the session is resumed outside herdr.
+    herdr_pane = os.environ.get("HERDR_PANE_ID")
+    if herdr_pane:
+        state["herdr_pane_id"] = herdr_pane
+    else:
+        state.pop("herdr_pane_id", None)
     if transcript_path:
         state["transcript_path"] = transcript_path
     if payload.get("model"):

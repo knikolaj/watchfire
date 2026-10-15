@@ -46,6 +46,7 @@ def run_hook(monkeypatch, isolated_home, state_dir):
     # Tests usually run inside an interactive Claude session, which exports
     # CLAUDE_CODE_ENTRYPOINT=cli; drop it so results don't depend on the shell.
     monkeypatch.delenv("CLAUDE_CODE_ENTRYPOINT", raising=False)
+    monkeypatch.delenv("HERDR_PANE_ID", raising=False)   # same, when run inside herdr
 
     def _invoke(payload: dict, agent: str = "claude") -> dict | None:
         monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))

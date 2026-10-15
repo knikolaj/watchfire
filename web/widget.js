@@ -290,6 +290,18 @@ function renderHistory() {
       });
     });
   }
+  for (const icon of historyBodyEl.querySelectorAll(".hist-herdr.resume")) {
+    icon.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const row = icon.closest(".hist-row");
+      resumeSession({
+        session_id: row.dataset.id,
+        agent: row.dataset.agent,
+        cwd: row.dataset.resumeCwd || "",
+        name: row.dataset.name || "",
+      }, "/resume-herdr");
+    });
+  }
 }
 
 // Reflect current reveal state + hidden count on the ⚙ codex toggle. Hide the
@@ -365,9 +377,9 @@ function positionTipAtRow(rowEl) {
 
 // Dead history entry → open a fresh Windows Terminal tab that re-opens the
 // past Claude/Codex conversation (claude --resume / codex resume).
-function resumeSession({ session_id, agent, cwd, name }) {
+function resumeSession({ session_id, agent, cwd, name }, where = "/resume") {
   if (!session_id) return;
-  fetch("/resume", {
+  fetch(where, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ session_id, agent, cwd, name }),
