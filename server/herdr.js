@@ -140,6 +140,10 @@ export async function resumeInHerdr({ agent, cwd, sessionId, name }, opts = {}) 
     } else {
       created = await exec(bin, ["workspace", "create", ...where,
         "--label", cwd ? path.basename(cwd) : "watchfire", "--focus"]);
+      // A new workspace's first tab is just "1"; name it after the session,
+      // like the tabs added to an existing workspace. Cosmetic — never fatal.
+      const tabId = created.tab?.tab_id ?? created.root_pane?.tab_id;
+      if (name && tabId) await exec(bin, ["tab", "rename", tabId, name]).catch(() => {});
     }
     const paneId = created.root_pane?.pane_id;
     if (!paneId) return { ok: false, err: "no_pane_created" };

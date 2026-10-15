@@ -30,7 +30,7 @@ function fakeHerdr(created) {
     calls.push(args);
     if (args[0] === "workspace" && args[1] === "list") return { workspaces: WS };
     if (args[0] === "pane" && args[1] === "list") return { panes: PANES };
-    if (args[1] === "create") return { root_pane: { pane_id: created } };
+    if (args[1] === "create") return { root_pane: { pane_id: created, tab_id: created.replace(/:p\d+$/, ":t1") } };
     return {};
   };
   return { calls, exec };
@@ -52,11 +52,12 @@ test("existing project: new tab in its workspace, then the resume command", asyn
 test("unknown project: a new workspace named after the folder", async () => {
   const { calls, exec } = fakeHerdr("w3:p1");
   const r = await resumeInHerdr(
-    { agent: "claude", cwd: "/p/new proj", sessionId: ID, name: "" },
+    { agent: "claude", cwd: "/p/new proj", sessionId: ID, name: "Fable Health" },
     { bin: "herdr", exec });
   assert.equal(r.ok, true);
   assert.deepEqual(calls.slice(2), [
     ["workspace", "create", "--cwd", "/p/new proj", "--label", "new proj", "--focus"],
+    ["tab", "rename", "w3:t1", "Fable Health"],
     ["pane", "run", "w3:p1", "claude", "--resume", ID],
   ]);
 });
