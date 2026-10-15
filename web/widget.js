@@ -39,6 +39,11 @@ const codexToggleEl = document.getElementById("codexToggle");
 // + sort lives in memory + localStorage.
 let historyChats = null;        // null = not loaded yet, array once loaded
 let historyFetching = false;
+// Sessions an agent process has open (server-side check, not just hooks) and
+// resumes clicked but not open yet (id -> give-up time, ms).
+let openIds = new Set();
+const pendingResumes = new Map();
+const PENDING_MS = 2 * 60 * 1000;
 const historyExpanded = new Set();
 
 // --- Render ----------------------------------------------------------------
@@ -240,7 +245,7 @@ async function loadHistory() {
     historyBodyEl.innerHTML = `<div class="empty">Loading history…</div>`;
   }
   try {
-    const r = await fetch("/chats-all");
+    const [r] = await Promise.all([fetch("/chats-all"), refreshOpenIds()]);
     if (r.ok) historyChats = await r.json();
     else historyChats ??= [];
   } catch {
@@ -252,18 +257,44 @@ async function loadHistory() {
 }
 setInterval(() => { if (currentMode() === "history") loadHistory(); }, HISTORY_REFRESH_MS);
 
+async function refreshOpenIds() {
+  try {
+    const r = await fetch("/open-sessions");
+    if (r.ok) openIds = new Set(await r.json());
+  } catch { /* keep the last answer */ }
+}
+
+// After a resume click: poll until the session is open (or we give up), so the
+// row turns live without waiting for the 2-minute refresh.
+let pendingPoll = null;
+function markPending(id) {
+  pendingResumes.set(id, Date.now() + PENDING_MS);
+  renderHistory();
+  if (pendingPoll) return;
+  pendingPoll = setInterval(async () => {
+    await refreshOpenIds();
+    renderHistory();
+    if (pendingResumes.size === 0) { clearInterval(pendingPoll); pendingPoll = null; }
+  }, 3000);
+}
+
 function renderHistory() {
   if (historyChats === null) return;   // not loaded yet
   const sort = currentHistorySort();
   const now = Date.now() / 1000;
-  const liveIds = new Set(sessions.keys());   // which chats have a live window
+  // Which chats have a live window: hook state, plus what the server sees open.
+  const liveIds = new Set([...sessions.keys(), ...openIds]);
+  for (const [id, until] of pendingResumes) {
+    if (liveIds.has(id) || Date.now() > until) pendingResumes.delete(id);
+  }
+  const pendingIds = new Set(pendingResumes.keys());
   // Hide tool-spawned codex sessions (rescue/companion) unless revealed.
   const showCodex = currentShowCodexTasks();
   const { chats, hidden } = filterHistoryChats(historyChats, showCodex);
   updateCodexToggle(hidden, showCodex);
   historyBodyEl.innerHTML = sort === "time"
-    ? renderHistoryByTimeHtml(chats, now, liveIds)
-    : renderHistoryByProjectHtml(chats, now, { expanded: historyExpanded, liveIds });
+    ? renderHistoryByTimeHtml(chats, now, liveIds, pendingIds)
+    : renderHistoryByProjectHtml(chats, now, { expanded: historyExpanded, liveIds, pendingIds });
 
   for (const h of historyBodyEl.querySelectorAll(".hist-group-header")) {
     h.addEventListener("click", () => {
@@ -282,6 +313,14 @@ function renderHistory() {
       const id = row.dataset.id;
       const s = sessions.get(id);
       if (s) { focusSession(s); return; }
+      // Open, but its hook hasn't reported yet (fresh Codex resume): focus by
+      // what the row knows instead of opening it a second time.
+      if (liveIds.has(id)) {
+        focusSession({ session_id: id, cwd: row.dataset.cwd, name: row.dataset.name });
+        return;
+      }
+      if (pendingResumes.has(id)) return;   // already on its way
+      markPending(id);
       resumeSession({
         session_id: id,
         agent: row.dataset.agent,
@@ -294,6 +333,8 @@ function renderHistory() {
     icon.addEventListener("click", (e) => {
       e.stopPropagation();
       const row = icon.closest(".hist-row");
+      if (pendingResumes.has(row.dataset.id)) return;   // already on its way
+      markPending(row.dataset.id);
       resumeSession({
         session_id: row.dataset.id,
         agent: row.dataset.agent,

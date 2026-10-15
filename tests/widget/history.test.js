@@ -171,3 +171,12 @@ test("closed chats get a separate resume-in-herdr icon; live ones don't", () => 
   assert.match(row("closed"), /hist-herdr resume/);
   assert.doesNotMatch(row("live"), /hist-herdr resume/);
 });
+
+test("a resume on its way pulses; once open, the row is live and the herdr icon is gone", () => {
+  const pending = renderHistoryByTimeHtml([c({ session_id: "x" })], NOW, new Set(), new Set(["x"]));
+  assert.match(pending, /hist-herdr resume opening/);
+  assert.match(pending, /hist-status resume opening/);
+  const open = renderHistoryByTimeHtml([c({ session_id: "x" })], NOW, new Set(["x"]), new Set(["x"]));
+  assert.doesNotMatch(open, /opening/);
+  assert.doesNotMatch(open, /hist-herdr resume/);
+});

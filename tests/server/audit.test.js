@@ -81,3 +81,13 @@ test("headless claude, brand-new sessions and tool-started codex are not expecte
   });
   assert.deepEqual(r, { live: 0, unseen: [] });
 });
+
+test("listOpenSessionIds: verified claude registry entries + every rollout held open", async () => {
+  const { listOpenSessionIds } = await import("../../server/audit.js");
+  const ids = listOpenSessionIds({
+    listClaudeRegistry: () => [claude(10, "c-live"), claude(11, "c-stale")],
+    procStartOf: (pid) => (pid === 10 ? "100" : "999"),
+    listCodexRollouts: () => [rollout(U(1)), "/not/a/rollout.txt"],
+  });
+  assert.deepEqual(ids.sort(), ["c-live", U(1)].sort());
+});

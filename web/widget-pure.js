@@ -260,6 +260,7 @@ export function filterHistoryChats(chats, showCodexTasks) {
 export function renderHistoryByProjectHtml(chats, now, opts = {}) {
   const expanded = opts.expanded ?? new Set();   // cwds the user opened
   const liveIds = opts.liveIds ?? new Set();     // session_ids with a live window
+  const pendingIds = opts.pendingIds ?? new Set(); // resume clicked, not open yet
   if (chats.length === 0) {
     return `<div class="empty">No chats on disk yet.</div>`;
   }
@@ -282,7 +283,7 @@ export function renderHistoryByProjectHtml(chats, now, opts = {}) {
     // expanded, so the group-level age was redundant — and stealing room
     // from the project name, which we now ellipsis-truncate instead.
     const rows = isOpen
-      ? list.map(c => renderHistoryChatRowHtml(c, now, /*showCwd=*/false, liveIds.has(c.session_id))).join("")
+      ? list.map(c => renderHistoryChatRowHtml(c, now, /*showCwd=*/false, liveIds.has(c.session_id), pendingIds.has(c.session_id))).join("")
       : "";
     return `
       <div class="hist-group">
@@ -297,7 +298,7 @@ export function renderHistoryByProjectHtml(chats, now, opts = {}) {
 
 /** History grouped by time buckets (Today / Yesterday / Last 7 days / Older).
  *  Each row shows the project as a faint tag on the right. */
-export function renderHistoryByTimeHtml(chats, now, liveIds = new Set()) {
+export function renderHistoryByTimeHtml(chats, now, liveIds = new Set(), pendingIds = new Set()) {
   if (chats.length === 0) {
     return `<div class="empty">No chats on disk yet.</div>`;
   }
@@ -327,7 +328,7 @@ export function renderHistoryByTimeHtml(chats, now, liveIds = new Set()) {
   return sections.map(([label, list]) => `
     <div class="hist-bucket">
       <div class="hist-bucket-header">${label} <span class="hb-count">(${list.length})</span></div>
-      ${list.map(c => renderHistoryChatRowHtml(c, now, /*showCwd=*/true, liveIds.has(c.session_id))).join("")}
+      ${list.map(c => renderHistoryChatRowHtml(c, now, /*showCwd=*/true, liveIds.has(c.session_id), pendingIds.has(c.session_id))).join("")}
     </div>`).join("");
 }
 
@@ -338,7 +339,7 @@ function startOfDayMs(now) {
   return d.getTime();
 }
 
-function renderHistoryChatRowHtml(c, now, showCwd, isLive) {
+function renderHistoryChatRowHtml(c, now, showCwd, isLive, isPending = false) {
   const ago = fmtAgo(now - (c.last_modified / 1000));
   const cwdTag = showCwd
     ? `<span class="hist-cwd">${escape(shortPath(c.cwd))}</span>`
@@ -353,11 +354,14 @@ function renderHistoryChatRowHtml(c, now, showCwd, isLive) {
   // the row to focus it), or a ↻ if it's closed (click to resume it).
   const statusIcon = isLive
     ? `<span class="hist-status live" title="session open — click to focus"></span>`
-    : `<span class="hist-status resume" title="session closed — click to resume">↻</span>`;
+    : `<span class="hist-status resume${isPending ? " opening" : ""}" title="session closed — click to resume">↻</span>`;
   // Temporary, while trying herdr: a second way to resume, into a herdr tab.
+  // Hidden once the session is open anywhere — one place per session. While a
+  // resume is on its way (clicked, not open yet) it pulses instead.
+  const pending = isPending && !isLive ? " opening" : "";
   const herdrIcon = isLive
     ? `<span class="hist-herdr"></span>`
-    : `<span class="hist-herdr resume" title="resume in herdr">⧉</span>`;
+    : `<span class="hist-herdr resume${pending}" title="resume in herdr">⧉</span>`;
   return `
     <div class="hist-row" data-id="${escapeAttr(c.session_id)}" data-cwd="${escapeAttr(c.cwd)}" data-agent="${escapeAttr(c.agent || "")}" data-resume-cwd="${escapeAttr(c.cwd_real || c.cwd)}" data-name="${escapeAttr(chatName(c))}">
       ${agentBadge(c.agent)}

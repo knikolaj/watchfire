@@ -406,6 +406,15 @@
     }
     .hist-herdr.resume { cursor: pointer; color: var(--text-dim); }
     .hist-herdr.resume:hover { background: var(--bg-row-hover); color: var(--text); }
+    /* Resume clicked, session not open yet: pulse green until it shows up. */
+    .hist-herdr.opening, .hist-status.opening {
+      color: var(--status-done);
+      animation: wf-opening 1s ease-in-out infinite;
+    }
+    @keyframes wf-opening {
+      0%, 100% { opacity: 1; text-shadow: 0 0 4px var(--status-done); }
+      50%      { opacity: .35; text-shadow: none; }
+    }
     .hist-ctx { text-align: right; line-height: 1.2; min-width: 32px; }
     .hist-ctx .pct { font-size: 10px; color: var(--text); }
     .hist-ctx .pct.warn   { color: #f39c12; font-weight: bold; }
