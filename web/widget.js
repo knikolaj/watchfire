@@ -368,7 +368,7 @@ function renderHistory() {
 function updateCodexToggle(hidden, showCodex) {
   if (!codexToggleEl) return;
   codexToggleEl.classList.toggle("active", showCodex);
-  codexToggleEl.textContent = !showCodex && hidden ? `🤖 ${hidden}` : "🤖";
+  codexToggleEl.textContent = "🤖";
   codexToggleEl.hidden = !showCodex && hidden === 0;
   syncToolbarSep();
 }
