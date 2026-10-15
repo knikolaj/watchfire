@@ -180,3 +180,14 @@ test("a resume on its way pulses; once open, the row is live and the herdr icon 
   assert.doesNotMatch(open, /opening/);
   assert.doesNotMatch(open, /hist-herdr resume/);
 });
+
+test("open in herdr: green squares one column right instead of the dot", () => {
+  const html = renderHistoryByTimeHtml([c({ session_id: "h" }), c({ session_id: "w" })], NOW,
+    new Set(["h", "w"]), new Set(), new Set(["h"]));
+  const rows = html.split('class="hist-row"').slice(1);
+  const row = (id) => rows.find(r => r.includes(`data-id="${id}"`));
+  assert.match(row("h"), /hist-herdr live/);
+  assert.doesNotMatch(row("h"), /hist-status live/);
+  assert.match(row("w"), /hist-status live/);
+  assert.doesNotMatch(row("w"), /hist-herdr live/);
+});

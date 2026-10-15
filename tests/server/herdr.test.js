@@ -75,3 +75,12 @@ test("herdrBin: env override, then PATH, then ~/.local/bin", () => {
   assert.match(herdrBin({ PATH: "" }, (p) => p.endsWith("/.local/bin/herdr")), /\.local\/bin\/herdr$/);
   assert.equal(herdrBin({ PATH: "/a" }, () => false), null);
 });
+
+test("focusInHerdr focuses the agent by pane id; errors are reported", async () => {
+  const { focusInHerdr } = await import("../../server/herdr.js");
+  const calls = [];
+  assert.deepEqual(await focusInHerdr("w1:p3", { bin: "herdr", exec: async (b, a) => { calls.push(a); return {}; } }), { ok: true });
+  assert.deepEqual(calls, [["agent", "focus", "w1:p3"]]);
+  const r = await focusInHerdr("w9:p9", { bin: "herdr", exec: async () => { throw new Error("no such pane"); } });
+  assert.deepEqual(r, { ok: false, err: "herdr_failed", msg: "no such pane" });
+});

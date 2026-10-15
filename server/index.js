@@ -17,8 +17,8 @@ import { WebSocketServer } from "ws";
 
 import { listChatsForCwd, listAllChats } from "./chats.js";
 import { prePruneBoot, pruneOrphanedSessions, pruneSupersededSessions } from "./prune.js";
-import { findUnseenSessions, listOpenSessionIds } from "./audit.js";
-import { resumeInHerdr } from "./herdr.js";
+import { findUnseenSessions, listOpenSessions } from "./audit.js";
+import { resumeInHerdr, focusInHerdr } from "./herdr.js";
 import { remapCwd } from "./config.js";
 import { HOST, isAllowedRequest, isValidSessionId } from "./guard.js";
 
@@ -117,6 +117,18 @@ function resumeSession({ agent, cwd, sessionId, name }) {
   });
 }
 
+/** The herdr pane holding session `id`, if any: what the running processes say,
+ *  else what the hook recorded. */
+async function herdrPaneFor(id) {
+  if (!isValidSessionId(id)) return null;
+  const open = listOpenSessions().find(s => s.session_id === id);
+  if (open?.herdr_pane_id) return open.herdr_pane_id;
+  try {
+    const s = JSON.parse(await fs.readFile(path.join(STATE_DIR, `${id}.json`), "utf-8"));
+    return typeof s.herdr_pane_id === "string" ? s.herdr_pane_id : null;
+  } catch { return null; }
+}
+
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let buf = "";
@@ -140,7 +152,16 @@ async function handleRequest(req, res) {
     // "my-project", …) — usually present in default WT tab titles.
     const lastCwd = body.cwd ? String(body.cwd).split("/").filter(Boolean).pop() : "";
     const tabName = body.name || lastCwd || "";
-    const result = await focusWindowsTerminal(tabName);
+    // A session living in a herdr pane: switch herdr to that pane, then bring
+    // its terminal window forward. Anything else: the Windows Terminal tab.
+    const pane = await herdrPaneFor(String(body.session_id || ""));
+    let result;
+    if (pane) {
+      result = await focusInHerdr(pane);
+      if (result.ok) focusWindowsTerminal("herdr");
+      else console.error(`[focus-herdr] ${body.session_id} pane ${pane}: ${result.err}${result.msg ? `: ${result.msg}` : ""}`);
+    }
+    if (!result || !result.ok) result = await focusWindowsTerminal(tabName);
     res.writeHead(200, { "content-type": "application/json" });
     return res.end(JSON.stringify(result));
   }
@@ -175,7 +196,7 @@ async function handleRequest(req, res) {
   }
   if (req.method === "GET" && req.url === "/open-sessions") {
     res.writeHead(200, { "content-type": "application/json" });
-    return res.end(JSON.stringify(listOpenSessionIds()));
+    return res.end(JSON.stringify(listOpenSessions()));
   }
   if (req.method === "GET" && req.url.startsWith("/chats-all")) {
     const url = new URL(req.url, "http://x");
