@@ -18,7 +18,10 @@ import { WebSocketServer } from "ws";
 import { listChatsForCwd, listAllChats, extractCodexTranscriptMeta } from "./chats.js";
 import { prePruneBoot, pruneOrphanedSessions, pruneSupersededSessions } from "./prune.js";
 import { findUnseenSessions, listOpenSessions } from "./audit.js";
-import { resumeInHerdr, focusInHerdr, listHerdrAgents, matchPanesByTitle, matchPanesByThreadId } from "./herdr.js";
+import {
+  resumeInHerdr, focusInHerdr, listHerdrAgents, listHerdrPanes, herdrPanePids,
+  placeByPanePids, matchPanesByTitle, matchPanesByThreadId,
+} from "./herdr.js";
 import { remapCwd } from "./config.js";
 import { HOST, isAllowedRequest, isValidSessionId } from "./guard.js";
 
@@ -138,8 +141,25 @@ async function rolloutMeta(file) {
 
 /** listOpenSessions, plus herdr panes found by title for Codex sessions the
  *  process check couldn't place (a fresh `codex` — see matchPanesByTitle). */
+function cmdlineOf(pid) {
+  try { return fssync.readFileSync(`/proc/${pid}/cmdline`, "utf-8").split("\0").join(" "); }
+  catch { return ""; }
+}
+
 async function openSessionsWithHerdr() {
   const open = listOpenSessions();
+  const panes = await listHerdrPanes();
+  // HERDR_PANE_ID from a process's environment goes stale when its pane is
+  // moved (the pane gets a new id); keep it only if that pane still exists.
+  const paneIds = new Set(panes.map(p => p.pane_id));
+  for (const s of open) if (s.herdr_pane_id && !paneIds.has(s.herdr_pane_id)) s.herdr_pane_id = null;
+  if (!panes.length) return open;
+  // Best signal: the processes herdr itself reports in each pane.
+  const panePids = new Map(await Promise.all(
+    panes.map(async p => [p.pane_id, await herdrPanePids(p.pane_id)])));
+  const byPid = placeByPanePids(open, panePids, cmdlineOf);
+  for (const s of open) if (byPid.has(s.session_id)) s.herdr_pane_id = byPid.get(s.session_id);
+
   let unplaced = open.filter(s => !s.herdr_pane_id);
   if (!unplaced.length) return open;
   const claimed = new Set(open.map(s => s.herdr_pane_id).filter(Boolean));

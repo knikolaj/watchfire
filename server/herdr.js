@@ -64,6 +64,48 @@ export async function listHerdrAgents(opts = {}) {
   catch { return []; }
 }
 
+/** Panes herdr has right now: [{ pane_id, ... }]; [] if herdr isn't there. */
+export async function listHerdrPanes(opts = {}) {
+  const bin = opts.bin !== undefined ? opts.bin : herdrBin();
+  const exec = opts.exec ?? _exec;
+  if (!bin) return [];
+  try { return (await exec(bin, ["pane", "list"])).panes ?? []; }
+  catch { return []; }
+}
+
+/** Pids of the foreground processes in a herdr pane, as herdr reports them.
+ *  Unlike HERDR_PANE_ID in a process's environment — fixed at launch — this
+ *  follows the pane when it is moved and gets a new id. */
+export async function herdrPanePids(paneId, opts = {}) {
+  const bin = opts.bin !== undefined ? opts.bin : herdrBin();
+  const exec = opts.exec ?? _exec;
+  if (!bin) return [];
+  try {
+    const info = (await exec(bin, ["pane", "process-info", "--pane", paneId])).process_info ?? {};
+    return (info.foreground_processes ?? []).map(p => p.pid).filter(Number.isInteger);
+  } catch { return []; }
+}
+
+/** Sessions placed by the processes in each pane: a Claude CLI pid from its
+ *  registry, or a client whose command line names a session id (`codex
+ *  resume <id>`). panePids: Map pane -> [pid]; returns Map session_id -> pane. */
+export function placeByPanePids(open, panePids, cmdlineOf) {
+  const byPid = new Map(open.filter(s => s.pid).map(s => [s.pid, s.session_id]));
+  const ids = new Set(open.map(s => s.session_id));
+  const out = new Map();
+  for (const [pane, pids] of panePids) {
+    for (const pid of pids) {
+      let sid = byPid.get(pid);
+      if (!sid) {
+        const m = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/.exec(cmdlineOf(pid) || "");
+        if (m && ids.has(m[0])) sid = m[0];
+      }
+      if (sid) out.set(sid, pane);
+    }
+  }
+  return out;
+}
+
 /** Pairing from the session id in the pane title: with `[tui] terminal_title`
  *  including "thread-id", Codex puts the id into its title, and it follows
  *  /new and /resume inside the tab. Codex cuts it to its first 29 characters

@@ -129,3 +129,26 @@ test("matchPanesByThreadId skips a prefix shared by two open sessions", async ()
     [{ agent: "codex", pane_id: "w1:p1", terminal_title_stripped: "x | 01a12cf7-21a8-7a91-b295-483f2..." }]);
   assert.equal(m.size, 0);
 });
+
+test("placeByPanePids: claude by registry pid, codex by the id on its command line", async () => {
+  const { placeByPanePids } = await import("../../server/herdr.js");
+  const open = [
+    { session_id: "c1", pid: 100 },
+    { session_id: ID },                       // codex, no pid of its own
+    { session_id: "c2", pid: 300 },           // not in any pane
+  ];
+  const panePids = new Map([["w4:p1", [100, 101]], ["w1:p2", [200]], ["w9:p9", [999]]]);
+  const cmd = { 200: `codex resume ${ID}`, 999: "codex resume 99999999-9999-7999-8999-999999999999" };
+  const m = placeByPanePids(open, panePids, pid => cmd[pid] || "");
+  assert.deepEqual([...m].sort(), [["c1", "w4:p1"], [ID, "w1:p2"]].sort());
+});
+
+test("herdrPanePids reads foreground pids; [] on failure", async () => {
+  const { herdrPanePids } = await import("../../server/herdr.js");
+  const ok = await herdrPanePids("w4:p1", { bin: "h", exec: async (b, a) => {
+    assert.deepEqual(a, ["pane", "process-info", "--pane", "w4:p1"]);
+    return { process_info: { foreground_processes: [{ pid: 129146 }, { pid: 129286 }] } };
+  } });
+  assert.deepEqual(ok, [129146, 129286]);
+  assert.deepEqual(await herdrPanePids("x", { bin: "h", exec: async () => { throw new Error("gone"); } }), []);
+});
