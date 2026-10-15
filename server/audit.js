@@ -80,6 +80,25 @@ function _readRolloutMeta(file) {
   } catch { return null; }
 }
 
+/** Ids of every session some agent process has open right now, whether or
+ *  not its hook has fired. Codex fires no hook on `resume` until the first
+ *  message, so the state dir alone misses a freshly resumed session. */
+export function listOpenSessionIds(opts = {}) {
+  const listClaudeRegistry = opts.listClaudeRegistry ?? _listClaudeRegistry;
+  const procStartOf = opts.procStartOf ?? _procStartOf;
+  const listCodexRollouts = opts.listCodexRollouts ?? _listCodexRollouts;
+  const ids = new Set();
+  for (const e of listClaudeRegistry()) {
+    if (e && e.pid && e.sessionId && e.procStart
+        && procStartOf(e.pid) === String(e.procStart)) ids.add(e.sessionId);
+  }
+  for (const file of listCodexRollouts()) {
+    const m = ROLLOUT_RE.exec(file);
+    if (m) ids.add(m[1]);
+  }
+  return [...ids];
+}
+
 /** Live interactive sessions that have no state file. Returns
  *  { live, unseen: [{ agent, session_id, cwd, pid? }] } where `live` is how
  *  many sessions were checked. */

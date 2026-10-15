@@ -34,6 +34,8 @@ function _exec(bin, args) {
   return new Promise((resolve, reject) => {
     execFile(bin, args, { timeout: 10_000 }, (err, stdout, stderr) => {
       if (err) return reject(new Error((stderr || err.message).trim()));
+      // Some commands (`pane run`) answer with nothing at all on success.
+      if (!stdout.trim()) return resolve({});
       try { resolve(JSON.parse(stdout).result ?? {}); }
       catch { reject(new Error(`unexpected herdr output: ${stdout.slice(0, 200)}`)); }
     });

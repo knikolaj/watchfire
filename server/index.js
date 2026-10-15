@@ -17,7 +17,7 @@ import { WebSocketServer } from "ws";
 
 import { listChatsForCwd, listAllChats } from "./chats.js";
 import { prePruneBoot, pruneOrphanedSessions, pruneSupersededSessions } from "./prune.js";
-import { findUnseenSessions } from "./audit.js";
+import { findUnseenSessions, listOpenSessionIds } from "./audit.js";
 import { resumeInHerdr } from "./herdr.js";
 import { remapCwd } from "./config.js";
 import { HOST, isAllowedRequest, isValidSessionId } from "./guard.js";
@@ -172,6 +172,10 @@ async function handleRequest(req, res) {
     }
     res.writeHead(200, { "content-type": "application/json" });
     return res.end(JSON.stringify(result));
+  }
+  if (req.method === "GET" && req.url === "/open-sessions") {
+    res.writeHead(200, { "content-type": "application/json" });
+    return res.end(JSON.stringify(listOpenSessionIds()));
   }
   if (req.method === "GET" && req.url.startsWith("/chats-all")) {
     const url = new URL(req.url, "http://x");
