@@ -122,10 +122,12 @@ export function listOpenSessions(opts = {}) {
   const herdrPaneOf = opts.herdrPaneOf ?? _herdrPaneOf;
   const open = new Map();   // session_id -> herdr pane id | null
   const rollouts = new Map();   // codex session_id -> its rollout file
+  const pids = new Map();       // claude session_id -> its CLI pid
   for (const e of listClaudeRegistry()) {
     if (e && e.pid && e.sessionId && e.procStart
         && procStartOf(e.pid) === String(e.procStart)) {
       open.set(e.sessionId, herdrPaneOf(e.pid));
+      pids.set(e.sessionId, e.pid);
     }
   }
   for (const file of listCodexRollouts()) {
@@ -139,7 +141,9 @@ export function listOpenSessions(opts = {}) {
     if (m && pane && open.has(m[1])) open.set(m[1], pane);
   }
   return [...open].map(([session_id, herdr_pane_id]) => ({
-    session_id, herdr_pane_id, ...(rollouts.has(session_id) ? { rollout: rollouts.get(session_id) } : {}),
+    session_id, herdr_pane_id,
+    ...(rollouts.has(session_id) ? { rollout: rollouts.get(session_id) } : {}),
+    ...(pids.has(session_id) ? { pid: pids.get(session_id) } : {}),
   }));
 }
 
