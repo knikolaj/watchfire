@@ -64,6 +64,25 @@ export async function listHerdrAgents(opts = {}) {
   catch { return []; }
 }
 
+/** Pairing from the session id in the pane title: with `[tui] terminal_title`
+ *  including "thread-id", Codex puts the id into its title, and it follows
+ *  /new and /resume inside the tab. Codex cuts it to its first 29 characters
+ *  plus "...", so match by prefix — 29 characters of a UUID are unique among
+ *  open sessions in practice; an ambiguous prefix is skipped.
+ *  Returns Map session_id -> pane. */
+export function matchPanesByThreadId(sessionIds, agents) {
+  const out = new Map();
+  for (const a of agents) {
+    if (a.agent !== "codex") continue;
+    const title = String(a.terminal_title_stripped || a.terminal_title || "");
+    for (const m of title.matchAll(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f-]{4,17}/g)) {
+      const hits = sessionIds.filter(id => id.startsWith(m[0]));
+      if (hits.length === 1) out.set(hits[0], a.pane_id);
+    }
+  }
+  return out;
+}
+
 /** Tie open Codex sessions to herdr panes by the pane title. A fresh `codex`
  *  carries no session id that would link its pane to its session (the id
  *  lives in the app-server daemon, outside any pane), but Codex titles its

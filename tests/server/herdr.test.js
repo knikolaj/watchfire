@@ -108,3 +108,23 @@ test("listHerdrAgents: [] when herdr is missing or fails", async () => {
   assert.deepEqual(await listHerdrAgents({ bin: "h", exec: async () => ({ agents: [{ pane_id: "w1:p1" }] }) }),
     [{ pane_id: "w1:p1" }]);
 });
+
+test("matchPanesByThreadId: the session UUID in the pane title is an exact match", async () => {
+  const { matchPanesByThreadId } = await import("../../server/herdr.js");
+  const m = matchPanesByThreadId([ID, "01a12cf7-21a8-7a91-b295-483f2e73097a"], [
+    { agent: "codex", pane_id: "w1:p2", terminal_title_stripped: `Strava Import | GPT-6.1-Sol | ${ID}` },
+    { agent: "codex", pane_id: "w1:p3", terminal_title_stripped: "untitled | GPT-6.1-Sol" },
+    { agent: "codex", pane_id: "w1:p4", terminal_title_stripped: "x | 99999999-9999-7999-8999-999999999999" },
+    // As Codex really shows it: first 29 characters + "...".
+    { agent: "codex", pane_id: "w1:p5", terminal_title_stripped: "WHOOP | GPT-6.1-Sol | 01a12cf7-21a8-7a91-b295-483f2..." },
+  ]);
+  assert.deepEqual([...m], [[ID, "w1:p2"], ["01a12cf7-21a8-7a91-b295-483f2e73097a", "w1:p5"]]);
+});
+
+test("matchPanesByThreadId skips a prefix shared by two open sessions", async () => {
+  const { matchPanesByThreadId } = await import("../../server/herdr.js");
+  const a = "01a12cf7-21a8-7a91-b295-483f2e73097a", b = "01a12cf7-21a8-7a91-b295-483f2fffffff";
+  const m = matchPanesByThreadId([a, b],
+    [{ agent: "codex", pane_id: "w1:p1", terminal_title_stripped: "x | 01a12cf7-21a8-7a91-b295-483f2..." }]);
+  assert.equal(m.size, 0);
+});
