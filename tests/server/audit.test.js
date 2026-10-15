@@ -96,4 +96,5 @@ test("listOpenSessions: verified claude entries + held rollouts, with their herd
   });
   const byId = Object.fromEntries(list.map(s => [s.session_id, s.herdr_pane_id]));
   assert.deepEqual(byId, { "c-herdr": "w1:p1", "c-wt": null, [U(1)]: "w1:p2", [U(2)]: null });
+  assert.equal(list.find(s => s.session_id === U(2)).rollout, rollout(U(2)), "codex entries name their rollout");
 });

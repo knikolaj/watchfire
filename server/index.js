@@ -15,10 +15,10 @@ import { fileURLToPath } from "node:url";
 import chokidar from "chokidar";
 import { WebSocketServer } from "ws";
 
-import { listChatsForCwd, listAllChats } from "./chats.js";
+import { listChatsForCwd, listAllChats, extractCodexTranscriptMeta } from "./chats.js";
 import { prePruneBoot, pruneOrphanedSessions, pruneSupersededSessions } from "./prune.js";
 import { findUnseenSessions, listOpenSessions } from "./audit.js";
-import { resumeInHerdr, focusInHerdr } from "./herdr.js";
+import { resumeInHerdr, focusInHerdr, listHerdrAgents, matchPanesByTitle } from "./herdr.js";
 import { remapCwd } from "./config.js";
 import { HOST, isAllowedRequest, isValidSessionId } from "./guard.js";
 
@@ -117,16 +117,54 @@ function resumeSession({ agent, cwd, sessionId, name }) {
   });
 }
 
+async function readState(id) {
+  try { return JSON.parse(await fs.readFile(path.join(STATE_DIR, `${id}.json`), "utf-8")); }
+  catch { return null; }
+}
+
+// Name + folder of a Codex session straight from its rollout, for sessions the
+// hook hasn't reported yet (Codex fires none on `resume` until the first
+// message). Rollouts run to tens of MB, so cache by path + mtime.
+const rolloutMetaCache = new Map();   // path -> { mtimeMs, meta }
+async function rolloutMeta(file) {
+  let st;
+  try { st = await fs.stat(file); } catch { return null; }
+  const hit = rolloutMetaCache.get(file);
+  if (hit && hit.mtimeMs === st.mtimeMs) return hit.meta;
+  const meta = await extractCodexTranscriptMeta(file).catch(() => null);
+  rolloutMetaCache.set(file, { mtimeMs: st.mtimeMs, meta });
+  return meta;
+}
+
+/** listOpenSessions, plus herdr panes found by title for Codex sessions the
+ *  process check couldn't place (a fresh `codex` — see matchPanesByTitle). */
+async function openSessionsWithHerdr() {
+  const open = listOpenSessions();
+  const unplaced = open.filter(s => !s.herdr_pane_id);
+  if (!unplaced.length) return open;
+  const claimed = new Set(open.map(s => s.herdr_pane_id).filter(Boolean));
+  const agents = (await listHerdrAgents()).filter(a => !claimed.has(a.pane_id));
+  if (!agents.length) return open;
+  const meta = await Promise.all(unplaced.map(async (s) => {
+    const st = await readState(s.session_id);
+    if (st?.name || !s.rollout) return st;
+    return (await rolloutMeta(s.rollout)) ?? st;
+  }));
+  const found = matchPanesByTitle(unplaced.map((s, i) => ({
+    session_id: s.session_id, agent: meta[i]?.agent, cwd: meta[i]?.cwd, name: meta[i]?.name,
+  })), agents);
+  for (const s of open) if (found.has(s.session_id)) s.herdr_pane_id = found.get(s.session_id);
+  return open;
+}
+
 /** The herdr pane holding session `id`, if any: what the running processes say,
  *  else what the hook recorded. */
 async function herdrPaneFor(id) {
   if (!isValidSessionId(id)) return null;
-  const open = listOpenSessions().find(s => s.session_id === id);
+  const open = (await openSessionsWithHerdr()).find(s => s.session_id === id);
   if (open?.herdr_pane_id) return open.herdr_pane_id;
-  try {
-    const s = JSON.parse(await fs.readFile(path.join(STATE_DIR, `${id}.json`), "utf-8"));
-    return typeof s.herdr_pane_id === "string" ? s.herdr_pane_id : null;
-  } catch { return null; }
+  const s = await readState(id);
+  return typeof s?.herdr_pane_id === "string" ? s.herdr_pane_id : null;
 }
 
 function readBody(req) {
@@ -196,7 +234,7 @@ async function handleRequest(req, res) {
   }
   if (req.method === "GET" && req.url === "/open-sessions") {
     res.writeHead(200, { "content-type": "application/json" });
-    return res.end(JSON.stringify(listOpenSessions()));
+    return res.end(JSON.stringify(await openSessionsWithHerdr()));
   }
   if (req.method === "GET" && req.url.startsWith("/chats-all")) {
     const url = new URL(req.url, "http://x");

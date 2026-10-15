@@ -84,3 +84,27 @@ test("focusInHerdr focuses the agent by pane id; errors are reported", async () 
   const r = await focusInHerdr("w9:p9", { bin: "herdr", exec: async () => { throw new Error("no such pane"); } });
   assert.deepEqual(r, { ok: false, err: "herdr_failed", msg: "no such pane" });
 });
+
+test("matchPanesByTitle: name + folder, one-to-one only", async () => {
+  const { matchPanesByTitle } = await import("../../server/herdr.js");
+  const agent = (pane_id, title, cwd = "/p/flyt") =>
+    ({ agent: "codex", pane_id, cwd, foreground_cwd: cwd, terminal_title_stripped: title });
+  const s = (session_id, name, cwd = "/p/flyt") => ({ session_id, agent: "codex", cwd, name });
+
+  const m = matchPanesByTitle(
+    [s("a", "Strava Import"), s("b", "WHOOP"), s("c", "Twin"), s("d", "Twin"), s("e", "")],
+    [agent("w1:p1", "Strava Import | GPT-6.1-Sol"),
+     agent("w1:p2", "WHOOP | GPT-6.1-Sol", "/p/other"),   // same name, other folder
+     agent("w1:p3", "Twin | GPT-6.1-Sol"),                 // two sessions named Twin
+     agent("w1:p4", "Strava Importer | GPT-6.1-Sol"),      // prefix of another name
+     { agent: "claude", pane_id: "w1:p5", cwd: "/p/flyt", terminal_title_stripped: "WHOOP" }]);
+  assert.deepEqual([...m], [["a", "w1:p1"]]);
+});
+
+test("listHerdrAgents: [] when herdr is missing or fails", async () => {
+  const { listHerdrAgents } = await import("../../server/herdr.js");
+  assert.deepEqual(await listHerdrAgents({ bin: null }), []);
+  assert.deepEqual(await listHerdrAgents({ bin: "h", exec: async () => { throw new Error("x"); } }), []);
+  assert.deepEqual(await listHerdrAgents({ bin: "h", exec: async () => ({ agents: [{ pane_id: "w1:p1" }] }) }),
+    [{ pane_id: "w1:p1" }]);
+});
