@@ -55,6 +55,39 @@ export async function focusInHerdr(paneId, opts = {}) {
   }
 }
 
+/** Agents herdr sees in its panes; [] if herdr is absent or not running. */
+export async function listHerdrAgents(opts = {}) {
+  const bin = opts.bin !== undefined ? opts.bin : herdrBin();
+  const exec = opts.exec ?? _exec;
+  if (!bin) return [];
+  try { return (await exec(bin, ["agent", "list"])).agents ?? []; }
+  catch { return []; }
+}
+
+/** Tie open Codex sessions to herdr panes by the pane title. A fresh `codex`
+ *  carries no session id that would link its pane to its session (the id
+ *  lives in the app-server daemon, outside any pane), but Codex titles its
+ *  terminal "<thread name> | <model>" and herdr reports that title. Matched on
+ *  name + folder, and only when the pairing is one-to-one — two same-named
+ *  sessions in one project stay unmarked rather than guessed.
+ *  sessions: [{ session_id, agent, cwd, name }]; returns Map session_id -> pane. */
+export function matchPanesByTitle(sessions, agents) {
+  const titled = (title, name) => title === name || title.startsWith(`${name} | `);
+  const pairs = [];
+  for (const a of agents) {
+    if (a.agent !== "codex") continue;
+    const title = String(a.terminal_title_stripped || a.terminal_title || "").trim();
+    if (!title) continue;
+    for (const s of sessions) {
+      if (s.agent !== "codex" || !s.name) continue;
+      if (s.cwd !== a.cwd && s.cwd !== a.foreground_cwd) continue;
+      if (titled(title, s.name)) pairs.push([s.session_id, a.pane_id]);
+    }
+  }
+  const count = (i, v) => pairs.filter(p => p[i] === v).length;
+  return new Map(pairs.filter(([sid, pane]) => count(0, sid) === 1 && count(1, pane) === 1));
+}
+
 /** The workspace to open `cwd` in: the one with a pane already in that
  *  directory, else the one labelled with the directory's name. null = none. */
 export function pickWorkspace(workspaces, panes, cwd) {

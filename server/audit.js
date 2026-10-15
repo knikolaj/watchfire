@@ -121,6 +121,7 @@ export function listOpenSessions(opts = {}) {
   const listCodexClients = opts.listCodexClients ?? _listCodexClients;
   const herdrPaneOf = opts.herdrPaneOf ?? _herdrPaneOf;
   const open = new Map();   // session_id -> herdr pane id | null
+  const rollouts = new Map();   // codex session_id -> its rollout file
   for (const e of listClaudeRegistry()) {
     if (e && e.pid && e.sessionId && e.procStart
         && procStartOf(e.pid) === String(e.procStart)) {
@@ -129,6 +130,7 @@ export function listOpenSessions(opts = {}) {
   }
   for (const file of listCodexRollouts()) {
     const m = ROLLOUT_RE.exec(file);
+    if (m) rollouts.set(m[1], file);
     if (m && !open.has(m[1])) open.set(m[1], null);
   }
   for (const c of listCodexClients()) {
@@ -136,7 +138,9 @@ export function listOpenSessions(opts = {}) {
     const pane = m && herdrPaneOf(c.pid);
     if (m && pane && open.has(m[1])) open.set(m[1], pane);
   }
-  return [...open].map(([session_id, herdr_pane_id]) => ({ session_id, herdr_pane_id }));
+  return [...open].map(([session_id, herdr_pane_id]) => ({
+    session_id, herdr_pane_id, ...(rollouts.has(session_id) ? { rollout: rollouts.get(session_id) } : {}),
+  }));
 }
 
 /** Live interactive sessions that have no state file. Returns
