@@ -368,8 +368,16 @@ function renderHistory() {
 function updateCodexToggle(hidden, showCodex) {
   if (!codexToggleEl) return;
   codexToggleEl.classList.toggle("active", showCodex);
-  codexToggleEl.textContent = showCodex ? "⚙ service" : (hidden ? `⚙ service (${hidden})` : "⚙ service");
+  codexToggleEl.textContent = !showCodex && hidden ? `🤖 ${hidden}` : "🤖";
   codexToggleEl.hidden = !showCodex && hidden === 0;
+  syncToolbarSep();
+}
+
+// The bar between ⚠ and 🤖 only when both are showing.
+function syncToolbarSep() {
+  const sep = document.getElementById("tbSep");
+  const warn = document.getElementById("auditWarnHistory");
+  if (sep) sep.hidden = !(warn && !warn.hidden && codexToggleEl && !codexToggleEl.hidden);
 }
 
 for (const b of historyEl.querySelectorAll(".hs-toggle[data-sort]")) {
@@ -470,13 +478,19 @@ function invalidateChats(cwd) {
 
 // Hourly self-check result from the server: sessions that are running but
 // missing here. Shown as a small mark so a silent gap doesn't stay silent.
+// The mark lives in two places — by the modebar (list views) and in the
+// History toolbar — so it never sits on top of other controls.
 function renderAudit(unseen) {
-  const el = document.getElementById("auditWarn");
-  if (!el) return;
-  el.hidden = unseen.length === 0;
-  el.textContent = `⚠ ${unseen.length}`;
-  el.title = "Running but not shown here:\n"
+  const title = "Running, but missing from the session list:\n"
     + unseen.map(u => `${u.agent} · ${shortPath(u.cwd || "")} · ${String(u.session_id).slice(0, 8)}`).join("\n");
+  for (const id of ["auditWarn", "auditWarnHistory"]) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.hidden = unseen.length === 0;
+    el.textContent = `⚠ ${unseen.length}`;
+    el.title = title;
+  }
+  syncToolbarSep();
 }
 
 connectWS({

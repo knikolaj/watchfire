@@ -296,7 +296,8 @@
     .history-toolbar {
       display: flex;
       gap: 4px;
-      padding: 6px 30px 6px 10px;   /* right pad for the modebar */
+      align-items: center;
+      padding: 6px 76px 6px 10px;   /* right pad clears the three modebar buttons */
       font-size: 10px;
       color: var(--text-dim);
       border-bottom: 1px solid var(--border);
@@ -312,10 +313,15 @@
     }
     .hs-toggle:hover  { background: var(--bg-row-hover); color: var(--text); }
     .hs-toggle.active { background: var(--bg-row); color: var(--text); }
-    /* Reveal-toggle for tool-spawned codex sessions, pushed to the far right.
-       Dimmed + hidden entirely when there's nothing to reveal. */
-    .codex-toggle { margin-left: auto; }
-    .codex-toggle[hidden] { display: none; }
+    /* Right end of the History toolbar: [⚠ N] │ [🤖 N] — the self-check mark
+       (only when something is off) and the service-sessions reveal toggle
+       (hidden entirely when there's nothing to reveal). */
+    .tb-right { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+    .tb-sep { width: 1px; height: 12px; background: var(--border); }
+    .tb-sep[hidden], .codex-toggle[hidden] { display: none; }
+    .codex-toggle { padding: 2px 6px; }
+    /* In History the mark sits in the toolbar instead of next to the modebar. */
+    body.mode-history .modebar .audit-warn { display: none; }
 
     .history-body { overflow-y: scroll; flex: 1; padding: 6px 0 8px; }
     .history-body::-webkit-scrollbar { width: 8px; }
@@ -444,8 +450,12 @@
     <div class="history-toolbar">
       <button class="hs-toggle" data-sort="project">by project</button>
       <button class="hs-toggle" data-sort="time">by time</button>
-      <button class="hs-toggle codex-toggle" id="codexToggle"
-              title="Service sessions (bots, headless runs, tool-spawned Codex) are hidden by default">⚙ service</button>
+      <div class="tb-right">
+        <span class="audit-warn" id="auditWarnHistory" hidden></span>
+        <span class="tb-sep" id="tbSep" hidden></span>
+        <button class="hs-toggle codex-toggle" id="codexToggle"
+                title="Service sessions (bots, headless runs, tool-spawned Codex) are hidden by default">🤖</button>
+      </div>
     </div>
     <div class="history-body" id="historyBody"></div>
   </div>
