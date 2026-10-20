@@ -29,7 +29,6 @@ let pinnedCwd = null;               // cwd whose chats popup is currently pinned
 const scrollEl   = document.getElementById("scroll");
 const tooltipEl  = document.getElementById("tooltip");
 const miniBarEl  = document.getElementById("miniBar");
-const modebarEl  = document.getElementById("modebar");
 const historyEl  = document.getElementById("history");
 const historyBodyEl = document.getElementById("historyBody");
 const codexToggleEl = document.getElementById("codexToggle");
@@ -191,13 +190,26 @@ function currentMode() {
   return "full";
 }
 
+const PRE_MINI_KEY = "watchfire.modeBeforeMini";
+
+// Header tabs: Actual = the open-sessions list (mode full); By project / By
+// time = History with that sort. Mini is a window size, toggled separately.
+function syncTabs() {
+  const m = document.body.classList.contains("mode-history") ? currentHistorySort() : "actual";
+  for (const b of document.querySelectorAll(".topbar .tab")) {
+    b.classList.toggle("active", b.dataset.tab === m);
+  }
+  syncToolbarSep();
+}
+
 function setMode(m) {
+  if (m === "mini") {
+    try { localStorage.setItem(PRE_MINI_KEY, currentMode() === "mini" ? "full" : currentMode()); } catch {}
+  }
   document.body.classList.remove("mode-full", "mode-mini", "mode-history");
   document.body.classList.add(`mode-${m}`);
-  for (const b of modebarEl.querySelectorAll(".mode-btn")) {
-    b.classList.toggle("active", b.dataset.mode === m);
-  }
   try { localStorage.setItem(MODE_KEY, m); } catch {}
+  syncTabs();
   // window.resizeTo is blocked by Edge for windows it didn't open via JS
   // (the --app launch). No-op if blocked. Heights are just hints; user
   // can resize manually afterwards.
@@ -209,9 +221,19 @@ function setMode(m) {
   if (m === "history") loadHistory();
 }
 
-for (const b of modebarEl.querySelectorAll(".mode-btn")) {
-  b.addEventListener("click", () => setMode(b.dataset.mode));
+for (const b of document.querySelectorAll(".topbar .tab")) {
+  b.addEventListener("click", () => {
+    if (b.dataset.tab === "actual") return setMode("full");
+    setHistorySort(b.dataset.tab);
+    if (currentMode() !== "history") setMode("history");
+  });
 }
+document.getElementById("miniBtn")?.addEventListener("click", () => setMode("mini"));
+document.getElementById("expandBtn")?.addEventListener("click", () => {
+  let back = "full";
+  try { back = localStorage.getItem(PRE_MINI_KEY) === "history" ? "history" : "full"; } catch {}
+  setMode(back);
+});
 setMode(currentMode());
 
 // --- History view ----------------------------------------------------------
@@ -226,9 +248,7 @@ function currentHistorySort() {
 
 function setHistorySort(s) {
   try { localStorage.setItem(HSORT_KEY, s); } catch {}
-  for (const b of historyEl.querySelectorAll(".hs-toggle[data-sort]")) {
-    b.classList.toggle("active", b.dataset.sort === s);
-  }
+  syncTabs();
   renderHistory();
 }
 
@@ -373,22 +393,17 @@ function updateCodexToggle(hidden, showCodex) {
   syncToolbarSep();
 }
 
-// The bar between ⚠ and 🤖 only when both are showing.
+// The bar between ⚠ and 🤖 only when both are showing (🤖 is History-only).
 function syncToolbarSep() {
   const sep = document.getElementById("tbSep");
-  const warn = document.getElementById("auditWarnHistory");
-  if (sep) sep.hidden = !(warn && !warn.hidden && codexToggleEl && !codexToggleEl.hidden);
+  const warn = document.getElementById("auditWarn");
+  const robot = codexToggleEl && !codexToggleEl.hidden
+    && document.body.classList.contains("mode-history");
+  if (sep) sep.hidden = !(warn && !warn.hidden && robot);
 }
 
-for (const b of historyEl.querySelectorAll(".hs-toggle[data-sort]")) {
-  b.addEventListener("click", () => setHistorySort(b.dataset.sort));
-}
 if (codexToggleEl) {
   codexToggleEl.addEventListener("click", () => setShowCodexTasks(!currentShowCodexTasks()));
-}
-// Initial toolbar highlight (history pane doesn't paint until first visit).
-for (const b of historyEl.querySelectorAll(".hs-toggle[data-sort]")) {
-  b.classList.toggle("active", b.dataset.sort === currentHistorySort());
 }
 
 // --- Tooltip ---------------------------------------------------------------
@@ -478,12 +493,12 @@ function invalidateChats(cwd) {
 
 // Hourly self-check result from the server: sessions that are running but
 // missing here. Shown as a small mark so a silent gap doesn't stay silent.
-// The mark lives in two places — by the modebar (list views) and in the
-// History toolbar — so it never sits on top of other controls.
+// The mark lives in two places — the header, and next to the expand button
+// in mini mode (which has no header).
 function renderAudit(unseen) {
   const title = "Running, but missing from the session list:\n"
     + unseen.map(u => `${u.agent} · ${shortPath(u.cwd || "")} · ${String(u.session_id).slice(0, 8)}`).join("\n");
-  for (const id of ["auditWarn", "auditWarnHistory"]) {
+  for (const id of ["auditWarn", "auditWarnMini"]) {
     const el = document.getElementById(id);
     if (!el) continue;
     el.hidden = unseen.length === 0;
