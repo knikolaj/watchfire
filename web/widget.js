@@ -423,7 +423,8 @@ function showTip(s, e) {
   // flow so layout is computable; void offsetHeight forces a sync flush.
   tooltipEl.style.visibility = "hidden";
   tooltipEl.style.display = "block";
-  tooltipEl.innerHTML = `<div class="head">${escape(head)}</div>${sub}${prompt}<div class="cwd">${escape(s.cwd || "")}</div>`;
+  // No cwd: the row already sits under its project's group header.
+  tooltipEl.innerHTML = `<div class="head">${escape(head)}</div>${sub}${prompt}`;
   void tooltipEl.offsetHeight;
   positionTipAtRow(target);
   tooltipEl.style.visibility = "visible";
