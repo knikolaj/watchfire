@@ -191,3 +191,19 @@ def test_records_herdr_pane(run_hook, monkeypatch):
     monkeypatch.delenv("HERDR_PANE_ID")
     out = run_hook({"session_id": "s1", "hook_event_name": "UserPromptSubmit", "cwd": "/p", "prompt": "x"})
     assert "herdr_pane_id" not in out
+
+
+def test_records_worktree_project(run_hook, tmp_path):
+    """A session in a git worktree remembers its main checkout."""
+    wt = tmp_path / "worktrees" / "foo-t35"
+    wt.mkdir(parents=True)
+    (wt / ".git").write_text("gitdir: /p/foo/.git/worktrees/foo-t35\n")
+    out = run_hook({"session_id": "s1", "hook_event_name": "SessionStart", "cwd": str(wt)})
+    assert out["project_root"] == "/p/foo"
+
+
+def test_no_project_root_outside_worktrees(run_hook, tmp_path):
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    out = run_hook({"session_id": "s1", "hook_event_name": "SessionStart", "cwd": str(repo)})
+    assert "project_root" not in out

@@ -268,3 +268,20 @@ test("pruneOrphanedSessions drops a host session whose rollout the host no longe
   // "fresh" survives on the start-up grace even though its rollout isn't open yet.
   assert.deepEqual(await listSessionIds(dir), ["fresh", "open"]);
 });
+
+test("pruneOrphanedSessions drops a quiet session whose folder is gone, never a busy one", async () => {
+  const dir = await tmpDir("prune-folder-gone");
+  const base = { pid: 7, last_event_at: 1 };
+  await writeState(dir, "done-gone", { ...base, session_id: "done-gone", cwd: "/w/foo-t34", status: "done" });
+  await writeState(dir, "busy-gone", { ...base, session_id: "busy-gone", cwd: "/w/foo-t35", status: "working" });
+  await writeState(dir, "wait-gone", { ...base, session_id: "wait-gone", cwd: "/w/foo-t36", status: "waiting_input" });
+  await writeState(dir, "done-here", { ...base, session_id: "done-here", cwd: "/p/foo", status: "done" });
+  const reasons = [];
+  await pruneOrphanedSessions(dir, {
+    isAlive: () => true, isHost: () => false,
+    cwdExists: (p) => p === "/p/foo",
+    onRemove: (s, why) => reasons.push([s.session_id, why]),
+  });
+  assert.deepEqual(await listSessionIds(dir), ["busy-gone", "done-here", "wait-gone"]);
+  assert.deepEqual(reasons, [["done-gone", "its folder /w/foo-t34 no longer exists"]]);
+});
