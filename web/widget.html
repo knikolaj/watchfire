@@ -216,6 +216,17 @@
     .chat-row.inactive .name  { color: #b0bcc8; }   /* a bit dimmer than active */
     .chat-row.inactive .state { color: #8896a4; }
 
+    /* Folded branch of worktree sessions at the end of a project group. */
+    .wt-header {
+      display: flex; justify-content: space-between; align-items: center;
+      gap: 6px; padding: 2px 0 4px 12px;
+      color: var(--text-dim); font-size: 10px;
+      cursor: pointer; user-select: none;
+    }
+    .wt-header:hover { color: var(--text); }
+    .wt-dots { display: flex; gap: 3px; }
+    .wt-dots .dot { width: 6px; height: 6px; }
+    .wt-rows { padding-left: 12px; }
     .row {
       display: grid;
       grid-template-columns: 22px 14px 1fr auto;

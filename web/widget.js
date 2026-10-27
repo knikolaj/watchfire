@@ -21,6 +21,7 @@ import {
 
 const sessions = new Map();        // session_id -> session
 const collapsed = new Set();        // cwd keys the user has collapsed
+const expandedWorktrees = new Set(); // project keys whose worktree branch is unfolded
 const chatsCounts  = new Map();     // cwd -> total chats on disk
 const chatsCache   = new Map();     // cwd -> chat list (cached /chats response)
 const chatsFetches = new Set();     // cwds with an in-flight /chats request
@@ -53,7 +54,7 @@ function render() {
   const sessionsArr = [...sessions.values()];
 
   scrollEl.innerHTML = renderListHtml(sessionsArr, now,
-    { collapsed, chatsCounts, pinnedCwd });
+    { collapsed, chatsCounts, pinnedCwd, expandedWorktrees });
   miniBarEl.innerHTML = renderMiniBarHtml(sessionsArr);
 
   // Wire interactivity
@@ -62,6 +63,13 @@ function render() {
     t.addEventListener("click", () => {
       const k = t.parentElement.dataset.cwd;
       collapsed.has(k) ? collapsed.delete(k) : collapsed.add(k);
+      render();
+    });
+  }
+  for (const h of scrollEl.querySelectorAll(".wt-header")) {
+    h.addEventListener("click", () => {
+      const k = h.dataset.cwd;
+      expandedWorktrees.has(k) ? expandedWorktrees.delete(k) : expandedWorktrees.add(k);
       render();
     });
   }
