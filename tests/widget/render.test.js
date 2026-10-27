@@ -145,3 +145,21 @@ test("renderListHtml renders each cwd group", () => {
   assert.match(html, /data-cwd="\/a"/);
   assert.match(html, /data-cwd="\/b"/);
 });
+
+test("worktree sessions fold into a branch inside their project's group", async () => {
+  const { renderListHtml } = await import("../../web/widget-pure.js");
+  const list = [
+    { session_id: "a", cwd: "/p/foo", status: "idle", last_event_at: 10 },
+    { session_id: "b", cwd: "/w/foo-t34", project_root: "/p/foo", status: "working", last_event_at: 20 },
+    { session_id: "c", cwd: "/w/foo-t35", project_root: "/p/foo", status: "waiting_input", last_event_at: 30 },
+  ];
+  const folded = renderListHtml(list, 100);
+  assert.equal((folded.match(/class="group-header"/g) || []).length, 1, "one project group");
+  assert.match(folded, /⎇ worktrees · 2/);
+  assert.match(folded, /wt-dots"><span class="dot waiting_input"><\/span><span class="dot working">/,
+    "status dots stay visible while folded — sorted freshest first");
+  assert.doesNotMatch(folded, /data-id="b"/, "worktree rows hidden while folded");
+  assert.match(folded, /data-id="a"/);
+  const open = renderListHtml(list, 100, { expandedWorktrees: new Set(["/p/foo"]) });
+  assert.match(open, /data-id="b"/);
+});

@@ -191,3 +191,12 @@ test("open in herdr: green squares one column right instead of the dot", () => {
   assert.match(row("w"), /hist-status live/);
   assert.doesNotMatch(row("w"), /hist-herdr live/);
 });
+
+test("By project: a worktree chat joins its project and is tagged with the worktree", () => {
+  const html = renderHistoryByProjectHtml([
+    c({ session_id: "main", cwd: "/p/foo" }),
+    c({ session_id: "wt", cwd: "/w/foo-t35", project_root: "/p/foo" }),
+  ], NOW, { expanded: new Set(["/p/foo"]) });
+  assert.equal((html.match(/hist-group-header/g) || []).length, 1, "one group, not two");
+  assert.match(html, /⎇ foo-t35/);
+});

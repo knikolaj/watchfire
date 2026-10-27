@@ -62,7 +62,8 @@ export function escapeAttr(s) { return escape(s); }
 export function groupSessionsByCwd(sessionsArr) {
   const groups = new Map();
   for (const s of sessionsArr) {
-    const k = s.cwd || "(unknown)";
+    // Sessions in a git worktree join their project's group (see renderGroupHtml).
+    const k = s.project_root || s.cwd || "(unknown)";
     if (!groups.has(k)) groups.set(k, []);
     groups.get(k).push(s);
   }
@@ -135,7 +136,19 @@ export function renderGroupHtml(cwd, list, now, opts = {}) {
   // until the /chats response arrives.
   const count = chatsCounts.has(cwd) ? chatsCounts.get(cwd) : list.length;
   const openCls = pinnedCwd === cwd ? " open" : "";
-  const rows = isCollapsed ? "" : list.map(s => renderRowHtml(s, now)).join("");
+  // Worktree sessions (parallel tasks in their own git worktree) fold into a
+  // collapsed branch at the end of the project; its header keeps their
+  // status dots visible, so a waiting task isn't missed while folded.
+  const own = list.filter(s => !s.project_root);
+  const wt = list.filter(s => s.project_root);
+  const wtOpen = (opts.expandedWorktrees ?? new Set()).has(cwd);
+  const wtBlock = wt.length === 0 ? "" : `
+      <div class="wt-header" data-cwd="${escapeAttr(cwd)}" title="Sessions in git worktrees of this project">
+        <span>${wtOpen ? "▾" : "▸"} ⎇ worktrees · ${wt.length}</span>
+        <span class="wt-dots">${wt.map(s => `<span class="dot ${s.status || "idle"}"></span>`).join("")}</span>
+      </div>
+      ${wtOpen ? `<div class="wt-rows">${wt.map(s => renderRowHtml(s, now)).join("")}</div>` : ""}`;
+  const rows = isCollapsed ? "" : own.map(s => renderRowHtml(s, now)).join("") + wtBlock;
   return `
     <div class="group">
       <div class="group-header" data-cwd="${escapeAttr(cwd)}">
@@ -265,10 +278,10 @@ export function renderHistoryByProjectHtml(chats, now, opts = {}) {
   if (chats.length === 0) {
     return `<div class="empty">No chats on disk yet.</div>`;
   }
-  // Group by cwd.
+  // Group by project; a chat from a git worktree joins its project's group.
   const groups = new Map();
   for (const c of chats) {
-    const k = c.cwd || "(unknown)";
+    const k = c.project_root || c.cwd || "(unknown)";
     if (!groups.has(k)) groups.set(k, []);
     groups.get(k).push(c);
   }
@@ -342,8 +355,11 @@ function startOfDayMs(now) {
 
 function renderHistoryChatRowHtml(c, now, showCwd, isLive, isPending = false, inHerdr = false) {
   const ago = fmtAgo(now - (c.last_modified / 1000));
+  // Inside a project group, a worktree chat is tagged with its worktree.
   const cwdTag = showCwd
     ? `<span class="hist-cwd">${escape(shortPath(c.cwd))}</span>`
+    : c.project_root
+    ? `<span class="hist-cwd">⎇ ${escape(String(c.cwd || "").split("/").filter(Boolean).pop() || "")}</span>`
     : "";
   const ctxBlock = (c.context_tokens != null && c.context_limit)
     ? `<div class="hist-ctx">
