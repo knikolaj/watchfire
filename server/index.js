@@ -352,7 +352,8 @@ async function readSessionFile(file) {
     session.cwd = normalizeCwd(session.cwd);
     session.name = await resolveSessionName(session);
     // A git worktree is shown inside its project, not as a project of its own.
-    const root = worktreeRoot(session.cwd);
+    // The hook records it too, so it survives the worktree being removed.
+    const root = worktreeRoot(session.cwd) || session.project_root;
     if (root) session.project_root = root;
     return session;
   } catch {

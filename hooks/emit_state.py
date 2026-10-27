@@ -80,6 +80,34 @@ def boot_id() -> str | None:
         return None
 
 
+def worktree_root(cwd: str) -> str | None:
+    """Main checkout of the git worktree containing `cwd`, or None.
+
+    Parallel agent tasks often run in their own worktree outside the project
+    (~/worktrees/foo-t35); its `.git` file reads
+    "gitdir: <main>/.git/worktrees/<name>". Recorded while the worktree exists,
+    so the session keeps its project after the task's worktree is removed.
+    Mirrors server/worktree.js."""
+    if not cwd or not os.path.isabs(cwd):
+        return None
+    d = cwd
+    for _ in range(8):
+        git = os.path.join(d, ".git")
+        try:
+            if os.path.isdir(git):
+                return None
+            with open(git) as f:
+                m = re.search(r"^gitdir:\s*(.+?)/\.git/worktrees/[^/\n]+\s*$", f.read(), re.M)
+            return m.group(1) if m else None
+        except OSError:
+            pass
+        up = os.path.dirname(d)
+        if up == d:
+            return None
+        d = up
+    return None
+
+
 def find_agent_pid() -> int:
     """Walk up the process tree from our parent until we hit the claude/codex
     CLI. The hook is spawned via `sh -c "/path/emit_state.py …"`, so
@@ -536,6 +564,10 @@ def main() -> int:
     # Inside a herdr pane the agent (and so this hook) inherits HERDR_PANE_ID.
     # Recorded so the widget can tell herdr sessions apart and, later, focus
     # the right pane. Dropped when the session is resumed outside herdr.
+    if not state.get("project_root"):
+        root = worktree_root(cwd)
+        if root:
+            state["project_root"] = root
     herdr_pane = os.environ.get("HERDR_PANE_ID")
     if herdr_pane:
         state["herdr_pane_id"] = herdr_pane

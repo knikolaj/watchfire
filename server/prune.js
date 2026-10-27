@@ -127,6 +127,7 @@ export async function pruneOrphanedSessions(stateDir, opts = {}) {
   const holdsOpen = opts.holdsOpen ?? holdsFileOpen;
   const now = opts.now ?? Date.now() / 1000;
   const onRemove = opts.onRemove ?? (() => {});
+  const cwdExists = opts.cwdExists ?? ((p) => fssync.existsSync(p));
   let removed = 0;
   const files = (await fs.readdir(stateDir).catch(() => []))
     .filter(f => f.endsWith(".json"));
@@ -141,12 +142,19 @@ export async function pruneOrphanedSessions(stateDir, opts = {}) {
       const closedOnHost = alive !== false && isHost(s.pid)
         && now - (s.last_event_at || 0) > HOST_SESSION_GRACE_SEC
         && !holdsOpen(s.pid, s.transcript_path);
-      if (alive === false || closedOnHost) {
+      // Its folder is gone — typically a finished task whose git worktree was
+      // removed. Nothing to go back to (resume needs the folder), yet a
+      // Codex host can keep the thread loaded for hours. Never while it is
+      // still working or waiting for you.
+      const folderGone = s.cwd && path.isAbsolute(s.cwd) && !cwdExists(s.cwd)
+        && s.status !== "working" && s.status !== "waiting_input";
+      if (alive === false || closedOnHost || folderGone) {
         await fs.unlink(fp);
         removed++;
         onRemove(s, alive === false
           ? `process ${s.pid} is gone`
-          : `host ${s.pid} no longer holds its transcript open`);
+          : closedOnHost ? `host ${s.pid} no longer holds its transcript open`
+          : `its folder ${s.cwd} no longer exists`);
       }
     } catch { /* ignore */ }
   }
