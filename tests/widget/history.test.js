@@ -200,3 +200,10 @@ test("By project: a worktree chat joins its project and is tagged with the workt
   assert.equal((html.match(/hist-group-header/g) || []).length, 1, "one group, not two");
   assert.match(html, /⎇ foo-t35/);
 });
+
+test("By project: a task run in a session's scratchpad is tagged as such", () => {
+  const html = renderHistoryByProjectHtml([
+    c({ session_id: "t", cwd: "/tmp/claude-1000/-p-foo/d00645fd-cf9a-4ba9-a3d3-822d209767dc/scratchpad", project_root: "/p/foo" }),
+  ], NOW, { expanded: new Set(["/p/foo"]) });
+  assert.match(html, /↳ scratchpad/);
+});

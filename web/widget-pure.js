@@ -143,8 +143,8 @@ export function renderGroupHtml(cwd, list, now, opts = {}) {
   const wt = list.filter(s => s.project_root);
   const wtOpen = (opts.expandedWorktrees ?? new Set()).has(cwd);
   const wtBlock = wt.length === 0 ? "" : `
-      <div class="wt-header" data-cwd="${escapeAttr(cwd)}" title="Sessions in git worktrees of this project">
-        <span>${wtOpen ? "▾" : "▸"} ⎇ worktrees · ${wt.length}</span>
+      <div class="wt-header" data-cwd="${escapeAttr(cwd)}" title="Tasks handed off from this project: sessions in its git worktrees or in a session's scratch folder">
+        <span>${wtOpen ? "▾" : "▸"} ↳ tasks · ${wt.length}</span>
         <span class="wt-dots">${wt.map(s => `<span class="dot ${s.status || "idle"}"></span>`).join("")}</span>
       </div>
       ${wtOpen ? `<div class="wt-rows">${wt.map(s => renderRowHtml(s, now)).join("")}</div>` : ""}`;
@@ -353,13 +353,21 @@ function startOfDayMs(now) {
   return d.getTime();
 }
 
+// Tag for a chat that ran outside its project's folder: "⎇ <worktree>" or
+// "↳ scratchpad" for a task run in a Claude session's scratch folder.
+function subFolderTag(cwd) {
+  const parts = String(cwd || "").split("/").filter(Boolean);
+  const last = parts.pop() || "";
+  return last === "scratchpad" ? "↳ scratchpad" : `⎇ ${last}`;
+}
+
 function renderHistoryChatRowHtml(c, now, showCwd, isLive, isPending = false, inHerdr = false) {
   const ago = fmtAgo(now - (c.last_modified / 1000));
   // Inside a project group, a worktree chat is tagged with its worktree.
   const cwdTag = showCwd
     ? `<span class="hist-cwd">${escape(shortPath(c.cwd))}</span>`
     : c.project_root
-    ? `<span class="hist-cwd">⎇ ${escape(String(c.cwd || "").split("/").filter(Boolean).pop() || "")}</span>`
+    ? `<span class="hist-cwd">${escape(subFolderTag(c.cwd))}</span>`
     : "";
   const ctxBlock = (c.context_tokens != null && c.context_limit)
     ? `<div class="hist-ctx">

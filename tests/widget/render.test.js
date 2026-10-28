@@ -155,7 +155,7 @@ test("worktree sessions fold into a branch inside their project's group", async 
   ];
   const folded = renderListHtml(list, 100);
   assert.equal((folded.match(/class="group-header"/g) || []).length, 1, "one project group");
-  assert.match(folded, /⎇ worktrees · 2/);
+  assert.match(folded, /↳ tasks · 2/);
   assert.match(folded, /wt-dots"><span class="dot waiting_input"><\/span><span class="dot working">/,
     "status dots stay visible while folded — sorted freshest first");
   assert.doesNotMatch(folded, /data-id="b"/, "worktree rows hidden while folded");

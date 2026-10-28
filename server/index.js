@@ -18,7 +18,7 @@ import { WebSocketServer } from "ws";
 import { listChatsForCwd, listAllChats, extractCodexTranscriptMeta } from "./chats.js";
 import { prePruneBoot, pruneOrphanedSessions, pruneSupersededSessions } from "./prune.js";
 import { findUnseenSessions, listOpenSessions } from "./audit.js";
-import { worktreeRoot } from "./worktree.js";
+import { projectRootOf } from "./worktree.js";
 import {
   resumeInHerdr, focusInHerdr, listHerdrAgents, listHerdrPanes, herdrPanePids,
   placeByPanePids, matchPanesByTitle, matchPanesByThreadId,
@@ -269,7 +269,7 @@ async function handleRequest(req, res) {
     const url = new URL(req.url, "http://x");
     const limit = Math.min(2000, Math.max(1, Number(url.searchParams.get("limit")) || 500));
     const list = (await listAllChats({ limit })).map(c => {
-      const root = worktreeRoot(c.cwd_real || c.cwd);
+      const root = projectRootOf(c.cwd_real || c.cwd);
       return root ? { ...c, project_root: root } : c;
     });
     res.writeHead(200, { "content-type": "application/json" });
@@ -353,7 +353,7 @@ async function readSessionFile(file) {
     session.name = await resolveSessionName(session);
     // A git worktree is shown inside its project, not as a project of its own.
     // The hook records it too, so it survives the worktree being removed.
-    const root = worktreeRoot(session.cwd) || session.project_root;
+    const root = projectRootOf(session.cwd) || session.project_root;
     if (root) session.project_root = root;
     return session;
   } catch {
