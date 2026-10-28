@@ -33,3 +33,24 @@ test("worktreeRoot reads a real .git file", async () => {
   await fs.writeFile(path.join(dir, ".git"), "gitdir: /home/u/projects/x/.git/worktrees/x-t1\n");
   assert.equal(worktreeRoot(dir), "/home/u/projects/x");
 });
+
+test("scratchpadParentCwd: a task in a Claude session's scratchpad belongs to that session's project", async () => {
+  const { scratchpadParentCwd } = await import("../../server/worktree.js");
+  const id = "d00645fd-cf9a-4ba9-a3d3-822d209767dc";
+  const cwd = `/tmp/claude-1000/-home-u-projects-home-assistant/${id}/scratchpad`;
+  const files = {
+    [`/s/${id}.json`]: JSON.stringify({ cwd: "/home/u/projects/home-assistant" }),
+  };
+  const opts = { stateDir: "/s", projectsDir: "/c", readFile: (p) => files[p] ?? null };
+  assert.equal(scratchpadParentCwd(cwd, opts), "/home/u/projects/home-assistant", "from the state file");
+  assert.equal(scratchpadParentCwd(`${cwd}/sub`, opts), "/home/u/projects/home-assistant", "deeper inside");
+
+  // No state file: fall back to the parent's transcript.
+  const tr = { [`/c/-home-u-projects-home-assistant/${id}.jsonl`]:
+    `{"type":"x"}\n{"cwd":"/home/u/projects/home-assistant","type":"user"}\n` };
+  assert.equal(scratchpadParentCwd(cwd, { stateDir: "/s", projectsDir: "/c", readFile: (p) => tr[p] ?? null }),
+    "/home/u/projects/home-assistant", "from the transcript");
+
+  assert.equal(scratchpadParentCwd("/home/u/projects/x", opts), null, "ordinary folder");
+  assert.equal(scratchpadParentCwd(cwd, { stateDir: "/s", projectsDir: "/c", readFile: () => null }), null, "parent unknown");
+});
